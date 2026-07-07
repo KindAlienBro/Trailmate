@@ -6,8 +6,8 @@
 class AppConstants {
   // ==================== Server ====================
   /// Backend server base URL
-  static const String serverBaseUrl = 'http://10.40.39.73:3000'; // Wi-Fi IP
-  static const String serverWsUrl = 'http://10.40.39.73:3000';   // Socket.IO URL
+  static const String serverBaseUrl = 'http://187.127.171.60:4000'; // Wi-Fi IP
+  static const String serverWsUrl = 'http://187.127.171.60:4000';   // Socket.IO URL
 
   // For physical device on same WiFi, use your machine's local IP:
   // static const String serverBaseUrl = 'http://192.168.x.x:3000';

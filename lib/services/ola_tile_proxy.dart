@@ -22,7 +22,13 @@ class OlaTileProxy {
   static Future<void> _handleRequest(HttpRequest request) async {
     try {
       final path = request.uri.path;
-      final targetUrl = 'https://api.olamaps.io$path';
+      final query = request.uri.query;
+      String targetUrl = 'https://api.olamaps.io$path';
+      if (query.isNotEmpty) {
+        targetUrl += '?$query&api_key=${AppConstants.olaApiKey}';
+      } else {
+        targetUrl += '?api_key=${AppConstants.olaApiKey}';
+      }
       
       final proxyResponse = await http.get(
         Uri.parse(targetUrl),

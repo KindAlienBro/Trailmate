@@ -85,6 +85,44 @@ class OlaMapsService {
     }
   }
 
+  // ==================== Smart Route (AI-Powered) ====================
+
+  /// Get an AI-optimized route with adventure waypoints.
+  /// Mode: 'highway' (direct), 'adventure' (scenic), 'full_adventure' (off-beat)
+  Future<Map<String, dynamic>> getSmartRoute({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    String mode = 'highway',
+    String? transportMode,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'origin': '$originLat,$originLng',
+        'destination': '$destLat,$destLng',
+        'mode': mode,
+      };
+
+      if (transportMode != null) {
+        body['transportMode'] = transportMode;
+      }
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl${AppConstants.smartRouteEndpoint}'),
+        headers: _headers,
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      throw Exception('Smart route API error: ${response.body}');
+    } catch (e) {
+      throw Exception('Failed to get smart route: $e');
+    }
+  }
+
   // ==================== Nearby Search ====================
 
   /// Search for nearby places by category.

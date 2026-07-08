@@ -7,6 +7,15 @@ import '../services/location_service.dart';
 import '../services/ola_maps_service.dart';
 import '../providers/group_provider.dart';
 import '../utils/polyline_decoder.dart';
+import '../widgets/suggestion_card.dart';
+
+enum TtsPriority { urgent, high, normal, low }
+
+class TtsMessage {
+  final String text;
+  final TtsPriority priority;
+  TtsMessage(this.text, this.priority);
+}
 
 /// Navigation Provider — manages live navigation state.
 ///
@@ -58,6 +67,13 @@ class NavigationProvider extends ChangeNotifier {
   // TTS
   bool _ttsEnabled = true;
   bool _hasSpokenApproachWarning = false;
+  final List<TtsMessage> _ttsQueue = [];
+  bool _isSpeaking = false;
+
+  // Smart Suggestions
+  WaypointSuggestion? _activeSuggestion;
+  Timer? _suggestionTimer;
+  DateTime? _lastMoveTime;
 
   // Getters
   WebSocketService get wsService => _wsService;
@@ -68,6 +84,7 @@ class NavigationProvider extends ChangeNotifier {
   List<LatLng> get routePolyline => _routePolyline;
   List<RouteStep> get routeSteps => _routeSteps;
   RouteStep? get currentStep => _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length ? _routeSteps[_currentStepIndex] : null;
+  RouteStep? get upcomingStep => _routeSteps.isNotEmpty && _currentStepIndex + 1 < _routeSteps.length ? _routeSteps[_currentStepIndex + 1] : null;
   double get distanceToNextStep => _distanceToNextStep;
   double get routeDistance => _routeDistance;
   double get routeDuration => _routeDuration;
@@ -83,6 +100,7 @@ class NavigationProvider extends ChangeNotifier {
   DateTime? get tripStartTime => _tripStartTime;
   double get totalDistanceTraveled => _totalDistanceTraveled;
   bool get ttsEnabled => _ttsEnabled;
+  WaypointSuggestion? get activeSuggestion => _activeSuggestion;
 
   /// Initialize with auth token
   void initialize(String token, String currentUserId, String currentUserName) {
@@ -100,6 +118,16 @@ class NavigationProvider extends ChangeNotifier {
     _tts.setSpeechRate(0.5);
     _tts.setVolume(1.0);
     _tts.setPitch(1.0);
+    
+    _tts.setCompletionHandler(() {
+      _isSpeaking = false;
+      _processTtsQueue();
+    });
+
+    _tts.setCancelHandler(() {
+      _isSpeaking = false;
+      _processTtsQueue();
+    });
   }
 
   /// Toggle TTS on/off
@@ -107,15 +135,45 @@ class NavigationProvider extends ChangeNotifier {
     _ttsEnabled = !_ttsEnabled;
     if (!_ttsEnabled) {
       _tts.stop();
+      _ttsQueue.clear();
+      _isSpeaking = false;
     }
     notifyListeners();
   }
 
-  /// Speak a navigation instruction
-  void _speak(String text) {
-    if (_ttsEnabled) {
-      _tts.speak(text);
+  /// Queue a navigation instruction with priority
+  void _queueSpeak(String text, {TtsPriority priority = TtsPriority.normal}) {
+    if (!_ttsEnabled) return;
+
+    if (priority == TtsPriority.urgent) {
+      _tts.stop();
+      _ttsQueue.clear();
+      _isSpeaking = false;
+      _ttsQueue.add(TtsMessage(text, priority));
+      _processTtsQueue();
+    } else if (priority == TtsPriority.high) {
+      _tts.stop();
+      _isSpeaking = false;
+      _ttsQueue.insert(0, TtsMessage(text, priority));
+      _processTtsQueue();
+    } else {
+      // Avoid spamming low priority messages
+      if (priority == TtsPriority.low && _ttsQueue.length > 2) return;
+      
+      _ttsQueue.add(TtsMessage(text, priority));
+      if (!_isSpeaking) _processTtsQueue();
     }
+  }
+
+  /// Process the next message in the queue
+  Future<void> _processTtsQueue() async {
+    if (_isSpeaking || _ttsQueue.isEmpty || !_ttsEnabled) return;
+
+    _isSpeaking = true;
+    final msg = _ttsQueue.removeAt(0);
+
+    // Call await on speak, but use completion handler to proceed
+    await _tts.speak(msg.text);
   }
 
   /// Set up WebSocket and location listeners
@@ -202,6 +260,15 @@ class NavigationProvider extends ChangeNotifier {
         
         notifyListeners();
 
+        // Speak high priority group alerts
+        if (type == 'deviation') {
+          _queueSpeak('Warning, ${data['name']} has deviated from the route.', priority: TtsPriority.high);
+        } else if (type == 'separation') {
+          _queueSpeak('Warning, ${data['name']} has fallen behind the group.', priority: TtsPriority.high);
+        } else if (type == 'backOnRoute') {
+          _queueSpeak('${data['name']} is back on the route.', priority: TtsPriority.normal);
+        }
+
         // Auto-remove THIS specific alert after 5 seconds (faster cleanup)
         Future.delayed(const Duration(seconds: 5), () {
           if (_activeAlerts.contains(alert)) {
@@ -233,11 +300,33 @@ class NavigationProvider extends ChangeNotifier {
             lat: (data['lat'] as num?)?.toDouble(),
             lng: (data['lng'] as num?)?.toDouble(),
           ));
+          _queueSpeak('SOS Emergency! ${data['name']} needs help. SOS triggered.', priority: TtsPriority.urgent);
         } else if (type == 'cancelled') {
           _isSosActive = false;
           _sosUserId = null;
+          _queueSpeak('SOS has been cancelled.', priority: TtsPriority.high);
         }
         notifyListeners();
+      }),
+    );
+
+    // Smart Suggestions
+    _subscriptions.add(
+      _wsService.suggestions.listen((data) {
+        final suggestionData = data['suggestion'];
+        if (suggestionData != null) {
+          _activeSuggestion = WaypointSuggestion.fromJson(suggestionData);
+          
+          if (_activeSuggestion!.type == 'fatigue_break') {
+            _queueSpeak('Fatigue warning. ${_activeSuggestion!.reason}', priority: TtsPriority.high);
+          } else if (_activeSuggestion!.type == 'ai_waypoint') {
+            _queueSpeak('Adventure stop ahead: ${_activeSuggestion!.name}.', priority: TtsPriority.normal);
+          } else {
+            _queueSpeak('Smart Suggestion: ${_activeSuggestion!.name}. ${_activeSuggestion!.reason}', priority: TtsPriority.low);
+          }
+          
+          notifyListeners();
+        }
       }),
     );
 
@@ -309,7 +398,7 @@ class NavigationProvider extends ChangeNotifier {
                   _consecutiveOffRoute = 0;
                   notifyListeners();
                   debugPrint('[Navigation] User is ${minDistance.toStringAsFixed(1)}m off route for 3+ readings. Rerouting...');
-                  _speak('Rerouting');
+                  _queueSpeak('Rerouting', priority: TtsPriority.normal);
                   _calculatePersonalRoute().whenComplete(() {
                     _isRerouting = false;
                     notifyListeners();
@@ -333,7 +422,7 @@ class NavigationProvider extends ChangeNotifier {
                 if (distToTurn < 200.0 && !_hasSpokenApproachWarning && _currentStepIndex < _routeSteps.length - 1) {
                   _hasSpokenApproachWarning = true;
                   final nextStep = _routeSteps[_currentStepIndex + 1];
-                  _speak('In ${distToTurn.round()} meters, ${nextStep.instruction}');
+                  _queueSpeak('In ${distToTurn.round()} meters, ${nextStep.instruction}', priority: TtsPriority.normal);
                 }
 
                 // If we are within 25 meters of the turn, advance to next instruction
@@ -342,7 +431,7 @@ class NavigationProvider extends ChangeNotifier {
                   _hasSpokenApproachWarning = false; // Reset for next step
                   final newStep = _routeSteps[_currentStepIndex];
                   _distanceToNextStep = newStep.distance; // reset to full distance initially
-                  _speak(newStep.instruction);
+                  _queueSpeak(newStep.instruction, priority: TtsPriority.normal);
 
                   // Update remaining distance/duration dynamically
                   _updateRemainingStats();
@@ -352,7 +441,7 @@ class NavigationProvider extends ChangeNotifier {
                 if (_currentStepIndex >= _routeSteps.length - 1 && distToTurn < 50.0) {
                   if (!_hasArrived) {
                     _hasArrived = true;
-                    _speak('You have arrived at your destination');
+                    _queueSpeak('You have arrived at your destination.', priority: TtsPriority.high);
                     notifyListeners();
                   }
                 }
@@ -449,10 +538,20 @@ class NavigationProvider extends ChangeNotifier {
     // Subscribe to group WebSocket room
     _wsService.subscribeToGroup(group.id);
 
+    // Start suggestion timer (checks every 5 minutes)
+    _suggestionTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkSuggestions());
+    _lastMoveTime = DateTime.now();
+
     // Start GPS tracking
     final hasPermission = await _locationService.requestPermissions();
     if (hasPermission) {
       _locationService.startTracking();
+    }
+
+    // Context-Aware Night Driving Advisory
+    final hour = DateTime.now().hour;
+    if (hour >= 18 || hour < 6) {
+      _queueSpeak('Night driving mode. Please drive safely, ensure your headlights are on, and maintain a safe following distance.', priority: TtsPriority.low);
     }
 
     notifyListeners();
@@ -489,6 +588,8 @@ class NavigationProvider extends ChangeNotifier {
     _currentStepIndex = 0;
     _distanceToNextStep = 0;
     _consecutiveOffRoute = 0;
+    _suggestionTimer?.cancel();
+    _activeSuggestion = null;
     notifyListeners();
   }
 
@@ -531,11 +632,20 @@ class NavigationProvider extends ChangeNotifier {
     }
 
     try {
+      final List<Map<String, double>> routeWaypoints = [];
+      if (_navigatingGroup!.route.waypoints.isNotEmpty) {
+        routeWaypoints.addAll(_navigatingGroup!.route.waypoints.map((w) => {'lat': w.lat, 'lng': w.lng}));
+      }
+      if (_navigatingGroup!.route.aiWaypoints.isNotEmpty) {
+        routeWaypoints.addAll(_navigatingGroup!.route.aiWaypoints.map((w) => {'lat': w.lat, 'lng': w.lng}));
+      }
+
       final result = await _olaMapsService.getDirections(
         originLat: me.latitude,
         originLng: me.longitude,
         destLat: destLat,
         destLng: destLng,
+        waypoints: routeWaypoints.isNotEmpty ? routeWaypoints : null,
         mode: _navigatingGroup?.route.transportMode,
       );
 
@@ -544,8 +654,12 @@ class NavigationProvider extends ChangeNotifier {
         final route = routes[0];
         
         // Parse Polyline
-        final polylineStr = route['overview_polyline'];
-        if (polylineStr != null) {
+        dynamic polylineData = route['overview_polyline'] ?? route['geometry'];
+        if (polylineData is Map) {
+          polylineData = polylineData['points'];
+        }
+        final polylineStr = polylineData as String?;
+        if (polylineStr != null && polylineStr.isNotEmpty) {
           final points = decodePolyline(polylineStr);
           if (points.isNotEmpty) {
             points.insert(0, LatLng(me.latitude, me.longitude));
@@ -579,7 +693,7 @@ class NavigationProvider extends ChangeNotifier {
             
             // Speak first instruction
             if (_routeSteps.isNotEmpty) {
-              _speak(_routeSteps[0].instruction);
+              _queueSpeak(_routeSteps[0].instruction, priority: TtsPriority.normal);
             }
           } else {
             _routeSteps = [];
@@ -627,6 +741,43 @@ class NavigationProvider extends ChangeNotifier {
       _activeAlerts.removeAt(index);
       notifyListeners();
     }
+  }
+
+  /// Dismiss the active suggestion
+  void dismissSuggestion() {
+    _activeSuggestion = null;
+    notifyListeners();
+  }
+
+  /// Periodic check for smart suggestions
+  void _checkSuggestions() {
+    if (_navigatingGroup == null || _currentUserId == null || !_navigatingGroup!.isLeader(_currentUserId!)) {
+      return; // Only leader checks for suggestions
+    }
+
+    final pos = _locationService.lastPosition;
+    if (pos == null) return;
+
+    final elapsedMinutes = _tripStartTime != null ? DateTime.now().difference(_tripStartTime!).inMinutes.toDouble() : 0.0;
+    
+    // Check if stopped for > 3 minutes
+    bool isStopped = false;
+    if (pos.speed < 1.0) {
+      if (_lastMoveTime != null && DateTime.now().difference(_lastMoveTime!).inMinutes >= 3) {
+        isStopped = true;
+      }
+    } else {
+      _lastMoveTime = DateTime.now();
+    }
+
+    _wsService.checkSuggestions(
+      groupId: _navigatingGroup!.id,
+      lat: pos.latitude,
+      lng: pos.longitude,
+      elapsedMinutes: elapsedMinutes,
+      distanceTraveled: _totalDistanceTraveled,
+      isStopped: isStopped,
+    );
   }
 
   @override
@@ -741,6 +892,12 @@ class RouteStep {
   });
 
   factory RouteStep.fromJson(Map<String, dynamic> json) {
+    // Debug: log the raw step JSON to understand the API response
+    debugPrint('[RouteStep] Raw step keys: ${json.keys.toList()}');
+    debugPrint('[RouteStep] maneuver raw: ${json['maneuver']} (${json['maneuver'].runtimeType})');
+    debugPrint('[RouteStep] instruction raw: ${json['instruction'] ?? json['instructions'] ?? json['html_instructions']}');
+
+    // ── Parse locations ──
     final startLoc = json['start_location'] as Map<String, dynamic>?;
     LatLng latLng = const LatLng(0, 0);
     if (startLoc != null) {
@@ -759,19 +916,114 @@ class RouteStep {
       );
     }
 
-    String rawInstruction = json['instructions']?.toString() ?? '';
-    String cleanedInstruction = rawInstruction.replaceAll(
-      RegExp(r'^Head\s+(north|south|east|west)(?:-(east|west))?', caseSensitive: false),
-      'Continue straight',
-    );
+    // ── Parse distance (can be a number OR an object {text, value}) ──
+    double distance = 0;
+    final rawDist = json['distance'];
+    if (rawDist is num) {
+      distance = rawDist.toDouble();
+    } else if (rawDist is Map) {
+      distance = (rawDist['value'] as num?)?.toDouble() ?? 0;
+    }
+
+    // ── Parse duration (can be a number OR an object {text, value}) ──
+    double duration = 0;
+    final rawDur = json['duration'];
+    if (rawDur is num) {
+      duration = rawDur.toDouble();
+    } else if (rawDur is Map) {
+      duration = (rawDur['value'] as num?)?.toDouble() ?? 0;
+    }
+
+    // ── Parse instruction (API may use 'instruction', 'instructions', or 'html_instructions') ──
+    String rawInstruction = (json['instruction'] 
+        ?? json['instructions'] 
+        ?? json['html_instructions'] 
+        ?? '').toString();
+    // Strip HTML tags
+    rawInstruction = rawInstruction.replaceAll(RegExp(r'<[^>]*>'), '');
+
+    // Only replace "Head north/south/east/west" with "Go straight" — keep the rest
+    String cleanedInstruction = rawInstruction.replaceAllMapped(
+      RegExp(r'^Head\s+(north|south|east|west)(?:-(east|west))?\s*', caseSensitive: false),
+      (match) => 'Go straight ',
+    ).trim();
+
+    // ── Parse maneuver (can be a string OR an object {type, modifier, ...}) ──
+    String maneuver = '';
+    final rawManeuver = json['maneuver'];
+    if (rawManeuver is String) {
+      maneuver = rawManeuver;
+    } else if (rawManeuver is Map) {
+      // OLA Maps format: {type: "turn", modifier: "right"} or {type: "turn-right"}
+      final type = (rawManeuver['type'] ?? '').toString();
+      final modifier = (rawManeuver['modifier'] ?? '').toString();
+      if (type.isNotEmpty && modifier.isNotEmpty && !type.contains(modifier)) {
+        maneuver = '$type-$modifier'; // e.g. "turn" + "right" → "turn-right"
+      } else if (type.isNotEmpty) {
+        maneuver = type;
+      }
+    }
+
+    // If maneuver is still empty, infer from the instruction text
+    if (maneuver.isEmpty) {
+      maneuver = _inferManeuverFromInstruction(cleanedInstruction);
+    }
+
+    debugPrint('[RouteStep] Parsed: maneuver=$maneuver, instruction=$cleanedInstruction, dist=$distance');
 
     return RouteStep(
-      distance: (json['distance'] as num?)?.toDouble() ?? 0,
-      duration: (json['duration'] as num?)?.toDouble() ?? 0,
+      distance: distance,
+      duration: duration,
       instruction: cleanedInstruction,
-      maneuverType: json['maneuver']?.toString() ?? '',
+      maneuverType: maneuver,
       location: latLng,
       endLocation: endLatLng,
     );
+  }
+
+  /// Infer a maneuver type string from the instruction text when the API
+  /// doesn't provide one. Returns a Google-compatible maneuver string.
+  static String _inferManeuverFromInstruction(String instruction) {
+    final inst = instruction.toLowerCase();
+    
+    // U-turn (check before left/right)
+    if (inst.contains('u-turn') || inst.contains('u turn') || inst.contains('uturn')) {
+      return inst.contains('right') ? 'uturn-right' : 'uturn-left';
+    }
+    // Arrival
+    if (inst.contains('arrive') || inst.contains('destination')) return 'arrive';
+    // Roundabout
+    if (inst.contains('roundabout') || inst.contains('rotary')) {
+      return inst.contains('left') ? 'roundabout-left' : 'roundabout-right';
+    }
+    // Fork
+    if (inst.contains('fork')) {
+      return inst.contains('left') ? 'fork-left' : 'fork-right';
+    }
+    // Merge
+    if (inst.contains('merge')) return 'merge';
+    // Ramp / exit
+    if (inst.contains('ramp') || inst.contains('exit')) {
+      return inst.contains('left') ? 'ramp-left' : 'ramp-right';
+    }
+    // Sharp turns
+    if (inst.contains('sharp') && inst.contains('left')) return 'sharp-left';
+    if (inst.contains('sharp') && inst.contains('right')) return 'sharp-right';
+    // Slight / keep / bear
+    if ((inst.contains('slight') || inst.contains('keep') || inst.contains('bear')) && inst.contains('left')) {
+      return 'slight-left';
+    }
+    if ((inst.contains('slight') || inst.contains('keep') || inst.contains('bear')) && inst.contains('right')) {
+      return 'slight-right';
+    }
+    // Normal turns
+    if (inst.contains('turn left') || (inst.contains('left') && !inst.contains('straight'))) {
+      return 'turn-left';
+    }
+    if (inst.contains('turn right') || (inst.contains('right') && !inst.contains('straight'))) {
+      return 'turn-right';
+    }
+    // Default
+    return 'straight';
   }
 }

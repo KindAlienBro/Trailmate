@@ -114,19 +114,25 @@ class RouteModel {
   final PlaceModel origin;
   final PlaceModel destination;
   final List<WaypointModel> waypoints;
+  final List<AIWaypoint> aiWaypoints;
   final String? polyline;
   final int distanceMeters;
   final int durationSeconds;
   final String transportMode;
+  final String routeMode;
+  final String routeCharacter;
 
   RouteModel({
     required this.origin,
     required this.destination,
     this.waypoints = const [],
+    this.aiWaypoints = const [],
     this.polyline,
     this.distanceMeters = 0,
     this.durationSeconds = 0,
     this.transportMode = 'driving',
+    this.routeMode = 'highway',
+    this.routeCharacter = '',
   });
 
   factory RouteModel.fromJson(Map<String, dynamic> json) {
@@ -137,14 +143,21 @@ class RouteModel {
               ?.map((w) => WaypointModel.fromJson(w))
               .toList() ??
           [],
+      aiWaypoints: (json['aiWaypoints'] as List?)
+              ?.map((w) => AIWaypoint.fromJson(w))
+              .toList() ??
+          [],
       polyline: json['polyline'],
       distanceMeters: json['distanceMeters'] ?? 0,
       durationSeconds: json['durationSeconds'] ?? 0,
       transportMode: json['transportMode'] ?? 'driving',
+      routeMode: json['routeMode'] ?? 'highway',
+      routeCharacter: json['routeCharacter'] ?? '',
     );
   }
 
   bool get hasRoute => origin.hasLocation && destination.hasLocation;
+  bool get isAdventure => routeMode == 'adventure' || routeMode == 'full_adventure';
 
   String get distanceText {
     if (distanceMeters >= 1000) {
@@ -158,6 +171,22 @@ class RouteModel {
     final minutes = (durationSeconds % 3600) ~/ 60;
     if (hours > 0) return '${hours}h ${minutes}m';
     return '${minutes}m';
+  }
+
+  String get routeModeEmoji {
+    switch (routeMode) {
+      case 'adventure': return '\u{1F3D4}\u{FE0F}';
+      case 'full_adventure': return '\u{1F30A}';
+      default: return '\u{1F6E3}\u{FE0F}';
+    }
+  }
+
+  String get routeModeTitle {
+    switch (routeMode) {
+      case 'adventure': return 'Adventure';
+      case 'full_adventure': return 'Full Adventure';
+      default: return 'Highway';
+    }
   }
 }
 
@@ -213,6 +242,62 @@ class WaypointModel {
       address: json['address'] ?? '',
       order: json['order'] ?? 0,
     );
+  }
+}
+
+/// AI-generated waypoint (from Gemini)
+class AIWaypoint {
+  final double lat;
+  final double lng;
+  final String name;
+  final String reason;
+  final String type; // scenic, curvy_road, mountain_pass, waterfall, jungle, water_crossing, viewpoint, heritage
+
+  AIWaypoint({
+    required this.lat,
+    required this.lng,
+    required this.name,
+    this.reason = '',
+    this.type = 'scenic',
+  });
+
+  factory AIWaypoint.fromJson(Map<String, dynamic> json) {
+    return AIWaypoint(
+      lat: (json['lat'] as num).toDouble(),
+      lng: (json['lng'] as num).toDouble(),
+      name: json['name'] ?? '',
+      reason: json['reason'] ?? '',
+      type: json['type'] ?? 'scenic',
+    );
+  }
+
+  String get emoji {
+    switch (type) {
+      case 'curvy_road': return '\u{1F6E3}\u{FE0F}';
+      case 'mountain_pass': return '\u{26F0}\u{FE0F}';
+      case 'waterfall': return '\u{1F4A7}';
+      case 'dam': return '\u{1F3ED}'; // 🏭 (or 🧱)
+      case 'lake': return '\u{1F3DE}\u{FE0F}'; // 🏞️
+      case 'cave': return '\u{1F987}'; // 🦇
+      case 'attraction': return '\u{1F3A2}'; // 🎢
+      case 'jungle': return '\u{1F333}';
+      case 'water_crossing': return '\u{1F30A}';
+      case 'viewpoint': return '\u{1F304}';
+      case 'heritage': return '\u{1F3DF}\u{FE0F}';
+      case 'museum': return '\u{1F3DB}\u{FE0F}'; // 🏛️
+      case 'monument': return '\u{1F5FD}'; // 🗽
+      case 'restaurant': return '\u{1F35D}'; // 🍝
+      case 'cafe': return '\u{2615}'; // ☕
+      case 'bakery': return '\u{1F950}'; // 🥐
+      case 'beach': return '\u{1F3D6}\u{FE0F}'; // 🏖️
+      case 'marina': return '\u{26F5}'; // ⛵
+      case 'worship': return '\u{1F6D0}'; // 🛐
+      case 'national_park': return '\u{1F3DE}\u{FE0F}'; // 🏞️
+      case 'zoo': return '\u{1F418}'; // 🐘
+      case 'scenic':
+      default:
+        return '\u{1F4CD}';
+    }
   }
 }
 
@@ -272,18 +357,31 @@ class GroupProvider extends ChangeNotifier {
     int? distanceMeters,
     int? durationSeconds,
     String transportMode = 'driving',
+    String routeMode = 'highway',
+    List<AIWaypoint>? aiWaypoints,
+    String? routeCharacter,
   }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      final body = <String, dynamic>{'name': name, 'transportMode': transportMode};
+      final body = <String, dynamic>{
+        'name': name,
+        'transportMode': transportMode,
+        'routeMode': routeMode,
+      };
       if (origin != null) body['origin'] = origin.toJson();
       if (destination != null) body['destination'] = destination.toJson();
       if (polyline != null) body['polyline'] = polyline;
       if (distanceMeters != null) body['distanceMeters'] = distanceMeters;
       if (durationSeconds != null) body['durationSeconds'] = durationSeconds;
+      if (aiWaypoints != null && aiWaypoints.isNotEmpty) {
+        body['aiWaypoints'] = aiWaypoints.map((w) => {
+          'lat': w.lat, 'lng': w.lng, 'name': w.name, 'reason': w.reason, 'type': w.type,
+        }).toList();
+      }
+      if (routeCharacter != null) body['routeCharacter'] = routeCharacter;
 
       final response = await http.post(
         Uri.parse('${AppConstants.serverBaseUrl}${AppConstants.groupsEndpoint}'),

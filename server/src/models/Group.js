@@ -53,6 +53,7 @@ const groupSchema = new mongoose.Schema({
   members: [memberSchema],
   route: {
     transportMode: { type: String, enum: ['driving', 'two_wheeler', 'walking', 'bicycling'], default: 'driving' },
+    routeMode: { type: String, enum: ['highway', 'adventure', 'full_adventure', 'cultural', 'foodie', 'coastal', 'spiritual', 'wildlife'], default: 'highway' },
     origin: {
       lat: { type: Number, default: null },
       lng: { type: Number, default: null },
@@ -66,6 +67,16 @@ const groupSchema = new mongoose.Schema({
       address: { type: String, default: '' },
     },
     waypoints: [waypointSchema],
+    // AI-generated adventure waypoints (from Gemini)
+    aiWaypoints: [{
+      lat: { type: Number, required: true },
+      lng: { type: Number, required: true },
+      name: { type: String, default: '' },
+      reason: { type: String, default: '' },
+      type: { type: String, default: 'scenic' }, // scenic, curvy_road, mountain_pass, waterfall, jungle, water_crossing, viewpoint, heritage
+    }],
+    // AI-generated route character description
+    routeCharacter: { type: String, default: '' },
     // Encoded polyline from Ola Directions API
     polyline: { type: String, default: null },
     // Decoded polyline points for deviation checking

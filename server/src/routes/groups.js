@@ -14,7 +14,7 @@ router.use(authenticate);
  */
 router.post('/', async (req, res) => {
   try {
-    const { name, origin, destination, waypoints, polyline, distanceMeters, durationSeconds, transportMode } = req.body;
+    const { name, origin, destination, waypoints, polyline, distanceMeters, durationSeconds, transportMode, routeMode, aiWaypoints, routeCharacter } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Group name is required' });
@@ -35,9 +35,12 @@ router.post('/', async (req, res) => {
       }],
       route: {
         transportMode: transportMode || 'driving',
+        routeMode: routeMode || 'highway',
         origin: origin || {},
         destination: destination || {},
         waypoints: waypoints || [],
+        aiWaypoints: aiWaypoints || [],
+        routeCharacter: routeCharacter || '',
         polyline: polyline || null,
         distanceMeters: distanceMeters || 0,
         durationSeconds: durationSeconds || 0,

@@ -2,14 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
-import '../../providers/group_provider.dart';
+import '../../providers/group_provider.dart'; // Just for PlaceModel
 import '../../services/ola_maps_service.dart';
 import '../../services/location_service.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:latlong2/latlong.dart';
-import 'route_selection_sheet.dart';
+import 'route_style_screen.dart';
 
-/// Create Group Screen — Leader sets group name and creates the trip.
+/// Create Group Screen — Step 1: Leader sets group name, transport mode, and endpoints.
 class CreateGroupScreen extends StatefulWidget {
   const CreateGroupScreen({super.key});
 
@@ -25,12 +24,14 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
   final OlaMapsService _mapsService = OlaMapsService();
   String _selectedMode = 'driving';
 
+  bool _isGeocoding = false;
+
   Future<Iterable<String>> _getPlaceSuggestions(String query) async {
     if (query.length < 3) return const Iterable<String>.empty();
     try {
-      _mapsService.setToken(context.read<AuthProvider>().token ?? '');
-      
-      // Bias results to current location
+      if (mounted) {
+        _mapsService.setToken(context.read<AuthProvider>().token ?? '');
+      }
       double? lat;
       double? lng;
       try {
@@ -39,9 +40,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           lat = position.latitude;
           lng = position.longitude;
         }
-      } catch (_) {
-        // Ignore location errors during autocomplete
-      }
+      } catch (_) {}
 
       final result = await _mapsService.autocomplete(
         input: query,
@@ -63,21 +62,17 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
     super.dispose();
   }
 
-  bool _isGeocoding = false;
-
-  Future<void> _handleCreate() async {
+  Future<void> _handleNext() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isGeocoding = true);
-    
-    final groupProvider = context.read<GroupProvider>();
-    groupProvider.setToken(context.read<AuthProvider>().token);
-    _mapsService.setToken(context.read<AuthProvider>().token ?? '');
+    if (mounted) {
+      _mapsService.setToken(context.read<AuthProvider>().token ?? '');
+    }
     
     PlaceModel origin = PlaceModel(name: _fromController.text.trim(), address: _fromController.text.trim());
     PlaceModel destination = PlaceModel(name: _toController.text.trim(), address: _toController.text.trim());
 
-    
     try {
       final coordRegex = RegExp(r'^[-+]?\d*\.?\d+,\s*[-+]?\d*\.?\d+$');
 
@@ -113,91 +108,72 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
         }
       }
 
-      if (origin.hasLocation && destination.hasLocation) {
-        final dir = await _mapsService.getDirections(
-          originLat: origin.lat!,
-          originLng: origin.lng!,
-          destLat: destination.lat!,
-          destLng: destination.lng!,
-          mode: _selectedMode,
-          alternatives: true,
-        );
-        
-        setState(() => _isGeocoding = false);
+      setState(() => _isGeocoding = false);
 
-        if (dir['routes'] != null && (dir['routes'] as List).isNotEmpty) {
-          final routes = dir['routes'] as List;
-          
-          if (routes.length == 1) {
-            // Only 1 route, create group directly
-            _createGroupWithRoute(origin, destination, routes[0]);
-          } else {
-            // Multiple routes, show selection sheet
-            showModalBottomSheet(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (context) => RouteSelectionSheet(
-                routes: routes,
-                origin: LatLng(origin.lat!, origin.lng!),
-                destination: LatLng(destination.lat!, destination.lng!),
-                onRouteSelected: (selectedRoute) {
-                  Navigator.pop(context);
-                  _createGroupWithRoute(origin, destination, selectedRoute);
-                },
-              ),
-            );
-          }
-        } else {
-          // No routes found
-          _showError('No routes found. Please check your locations.');
-        }
+      if (origin.hasLocation && destination.hasLocation && mounted) {
+        Navigator.of(context).push(MaterialPageRoute(
+          builder: (context) => RouteStyleScreen(
+            tripName: _nameController.text.trim(),
+            transportMode: _selectedMode,
+            origin: origin,
+            destination: destination,
+          ),
+        ));
       } else {
-        setState(() => _isGeocoding = false);
-        _showError('Failed to geocode locations.');
+        _showError('Failed to geocode one or more locations. Please try again.');
       }
     } catch (e) {
-      debugPrint('Geocode/Directions error: $e');
+      debugPrint('Geocode error: $e');
       setState(() => _isGeocoding = false);
-      _showError('Failed to get directions.');
+      _showError('Error determining locations.');
     }
   }
 
   void _showError(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: AppTheme.accentRed),
     );
   }
 
-  Future<void> _createGroupWithRoute(PlaceModel origin, PlaceModel destination, dynamic route) async {
-    setState(() => _isGeocoding = true);
-    final groupProvider = context.read<GroupProvider>();
-    
-    String? polyline = route['overview_polyline'];
-    int? distanceMeters;
-    int? durationSeconds;
-    
-    if (route['legs']?.isNotEmpty == true) {
-      final leg = route['legs'][0];
-      distanceMeters = leg['distance'];
-      durationSeconds = leg['duration'];
-    }
-
-    final group = await groupProvider.createGroup(
-      name: _nameController.text.trim(),
-      origin: origin,
-      destination: destination,
-      polyline: polyline,
-      distanceMeters: distanceMeters,
-      durationSeconds: durationSeconds,
-      transportMode: _selectedMode,
+  Widget _buildModeButton(IconData icon, String mode, String label) {
+    final isSelected = _selectedMode == mode;
+    return Expanded(
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _selectedMode = mode;
+          });
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? AppTheme.accentBlue.withValues(alpha: 0.15) : Colors.transparent,
+            borderRadius: BorderRadius.circular(12),
+            border: isSelected ? Border.all(color: AppTheme.accentBlue.withValues(alpha: 0.5)) : Border.all(color: Colors.transparent),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? AppTheme.accentBlue : AppTheme.textTertiary,
+                size: 24,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? AppTheme.accentBlue : AppTheme.textTertiary,
+                  fontSize: 12,
+                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
-
-    setState(() => _isGeocoding = false);
-
-    if (group != null && mounted) {
-      Navigator.of(context).pushReplacementNamed('/group-lobby', arguments: group.id);
-    }
   }
 
   @override
@@ -270,7 +246,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                       const SizedBox(height: 8),
                       Center(
                         child: Text(
-                          'Create a group and share the invite code\nwith your travel companions',
+                          'Step 1: Set up the trip details',
                           textAlign: TextAlign.center,
                           style: TextStyle(fontSize: 14, color: AppTheme.textSecondary),
                         ),
@@ -314,6 +290,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                 },
                               ),
                               const SizedBox(height: 16),
+                              
                               const Text(
                                 'Mode of Transport',
                                 style: TextStyle(
@@ -335,33 +312,6 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                     _buildModeButton(Icons.two_wheeler_rounded, 'two_wheeler', 'Bike'),
                                     _buildModeButton(Icons.directions_walk_rounded, 'walking', 'Walk'),
                                     _buildModeButton(Icons.directions_bike_rounded, 'bicycling', 'Cycle'),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              // Info note
-                              Container(
-                                padding: const EdgeInsets.all(14),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.accentBlue.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color: AppTheme.accentBlue.withValues(alpha: 0.2),
-                                  ),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.info_outline, color: AppTheme.accentBlue, size: 20),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'You can set the route and add stops in the lobby after creating the group.',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: AppTheme.accentBlue.withValues(alpha: 0.9),
-                                        ),
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
@@ -398,8 +348,19 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                         onPressed: () async {
                                           final locService = LocationService();
                                           final pos = await locService.getCurrentPosition();
-                                          if (pos != null) {
+                                          
+                                          if (pos == null) {
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Failed to get location. Please enable GPS and Permissions.'), backgroundColor: AppTheme.accentRed),
+                                              );
+                                            }
+                                            return;
+                                          }
+                                          
+                                          try {
                                             controller.text = 'Fetching address...';
+                                            if (mounted) _mapsService.setToken(context.read<AuthProvider>().token ?? '');
                                             final res = await _mapsService.reverseGeocode(lat: pos.latitude, lng: pos.longitude);
                                             if (res['geocodingResults']?.isNotEmpty == true) {
                                               final addr = res['geocodingResults'][0]['formatted_address'];
@@ -409,6 +370,16 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                               final locStr = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
                                               controller.text = locStr;
                                               _fromController.text = locStr;
+                                            }
+                                          } catch (e) {
+                                            debugPrint('Reverse Geocode Error: $e');
+                                            final locStr = '${pos.latitude.toStringAsFixed(4)}, ${pos.longitude.toStringAsFixed(4)}';
+                                            controller.text = locStr;
+                                            _fromController.text = locStr;
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(content: Text('Could not fetch address name, using coordinates instead.'), backgroundColor: AppTheme.accentPurple),
+                                              );
                                             }
                                           }
                                         },
@@ -515,57 +486,37 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                                 },
                               ),
                               
-                              const SizedBox(height: 28),
+                              const SizedBox(height: 32),
 
-                              // Error
-                              Consumer<GroupProvider>(
-                                builder: (context, gp, _) {
-                                  if (gp.errorMessage != null) {
-                                    return Padding(
-                                      padding: const EdgeInsets.only(bottom: 16),
-                                      child: Text(
-                                        gp.errorMessage!,
-                                        style: const TextStyle(color: AppTheme.accentRed, fontSize: 13),
-                                      ),
-                                    );
-                                  }
-                                  return const SizedBox.shrink();
-                                },
-                              ),
-
-                              // Create button
-                              Consumer<GroupProvider>(
-                                builder: (context, gp, _) {
-                                  return SizedBox(
-                                    width: double.infinity,
-                                    height: 54,
-                                    child: Container(
-                                      decoration: accentButtonDecoration(),
-                                      child: ElevatedButton(
-                                        onPressed: gp.isLoading ? null : _handleCreate,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.transparent,
-                                          shadowColor: Colors.transparent,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(14),
-                                          ),
-                                        ),
-                                        child: gp.isLoading
-                                            ? const SizedBox(
-                                                width: 22, height: 22,
-                                                child: CircularProgressIndicator(
-                                                  strokeWidth: 2.5,
-                                                  valueColor: AlwaysStoppedAnimation(Colors.white),
-                                                ),
-                                              )
-                                            : const Text(
-                                                'Create Trip',
-                                                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
-                                              ),
+                              // Next button
+                              SizedBox(
+                                width: double.infinity,
+                                height: 54,
+                                child: Container(
+                                  decoration: accentButtonDecoration(),
+                                  child: ElevatedButton(
+                                    onPressed: _isGeocoding ? null : _handleNext,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(14),
                                       ),
                                     ),
-                                  );
-                                },
+                                    child: _isGeocoding
+                                        ? const SizedBox(
+                                            width: 22, height: 22,
+                                            child: CircularProgressIndicator(
+                                              strokeWidth: 2.5,
+                                              valueColor: AlwaysStoppedAnimation(Colors.white),
+                                            ),
+                                          )
+                                        : const Text(
+                                            'Next: Choose Route Style',
+                                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                                          ),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
@@ -573,46 +524,6 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
                       ),
                     ],
                   ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildModeButton(IconData icon, String mode, String label) {
-    final isSelected = _selectedMode == mode;
-    return Expanded(
-      child: InkWell(
-        onTap: () {
-          setState(() {
-            _selectedMode = mode;
-          });
-        },
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          decoration: BoxDecoration(
-            color: isSelected ? AppTheme.accentBlue.withValues(alpha: 0.15) : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
-            border: isSelected ? Border.all(color: AppTheme.accentBlue.withValues(alpha: 0.5)) : Border.all(color: Colors.transparent),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                icon,
-                color: isSelected ? AppTheme.accentBlue : AppTheme.textTertiary,
-                size: 24,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: TextStyle(
-                  color: isSelected ? AppTheme.accentBlue : AppTheme.textTertiary,
-                  fontSize: 12,
-                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
                 ),
               ),
             ],

@@ -4,6 +4,7 @@ import 'package:latlong2/latlong.dart';
 
 import '../core/theme.dart';
 import '../providers/navigation_provider.dart';
+import '../providers/group_provider.dart';
 import '../services/ola_tile_proxy.dart';
 import 'member_marker.dart';
 import 'navigation_marker.dart';
@@ -23,6 +24,8 @@ class TrailMapWidget extends StatefulWidget {
   final bool isDrivingMode;
   final double? initialRouteBearing;
   final double deviceHeading;
+  final List<AIWaypoint> aiWaypoints;
+  final Function(AIWaypoint)? onWaypointTap;
 
   const TrailMapWidget({
     super.key,
@@ -36,6 +39,8 @@ class TrailMapWidget extends StatefulWidget {
     this.isDrivingMode = false,
     this.initialRouteBearing,
     this.deviceHeading = 0.0,
+    this.aiWaypoints = const [],
+    this.onWaypointTap,
   });
 
   @override
@@ -148,20 +153,39 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
             // Member Markers (with smooth animation)
             MarkerLayer(
               markers: [
-                if (widget.routePolyline.isNotEmpty)
+                if (widget.routePolyline.isNotEmpty) ...[
                   Marker(
                     point: widget.routePolyline.first,
                     width: 40,
                     height: 40,
                     child: const Icon(Icons.location_on, color: AppTheme.accentGreen, size: 40),
                   ),
-                if (widget.routePolyline.isNotEmpty && widget.routePolyline.length > 1)
                   Marker(
                     point: widget.routePolyline.last,
                     width: 40,
                     height: 40,
                     child: const Icon(Icons.flag_rounded, color: AppTheme.accentRed, size: 40),
                   ),
+                ],
+                ...widget.aiWaypoints.map((wp) => Marker(
+                  point: LatLng(wp.lat, wp.lng),
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  child: GestureDetector(
+                    onTap: () => widget.onWaypointTap?.call(wp),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: AppTheme.cardDark.withValues(alpha: 0.9),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: AppTheme.accentPurple, width: 2),
+                      ),
+                      child: Center(
+                        child: Text(wp.emoji, style: const TextStyle(fontSize: 18)),
+                      ),
+                    ),
+                  ),
+                )),
                 ...widget.memberPositions.values.map((pos) {
                   final isMe = pos.userId == widget.currentUserId;
                   final isLeader = pos.userId == widget.leaderId;

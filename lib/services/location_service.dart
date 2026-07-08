@@ -50,16 +50,34 @@ class LocationService {
       final hasPermission = await requestPermissions();
       if (!hasPermission) return null;
 
+      // Fast path: Try last known position first (often works instantly indoors)
+      final lastKnown = await Geolocator.getLastKnownPosition();
+      if (lastKnown != null) {
+        _lastPosition = lastKnown;
+        return lastKnown;
+      }
+
+      // Slower path: Try to get a fresh fix
       final position = await Geolocator.getCurrentPosition(
         locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.bestForNavigation,
-          timeLimit: Duration(seconds: 15),
+          accuracy: LocationAccuracy.high, // Less strict than bestForNavigation, faster lock
+          timeLimit: Duration(seconds: 10),
         ),
       );
       _lastPosition = position;
       return position;
     } catch (e) {
       debugPrint('[Location] Error getting position: $e');
+      
+      // If it times out or fails, try last known again as a desperate fallback
+      try {
+        final fallback = await Geolocator.getLastKnownPosition();
+        if (fallback != null) {
+          _lastPosition = fallback;
+          return fallback;
+        }
+      } catch (_) {}
+      
       return null;
     }
   }

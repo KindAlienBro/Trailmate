@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/theme.dart';
+import '../../providers/group_provider.dart';
 import '../../utils/polyline_decoder.dart'; // for decodePolyline
 
 class RouteSelectionSheet extends StatefulWidget {
   final List<dynamic> routes;
   final LatLng origin;
   final LatLng destination;
+  final List<AIWaypoint>? aiWaypoints;
+  final String? routeCharacter;
   final Function(dynamic) onRouteSelected;
 
   const RouteSelectionSheet({
@@ -15,6 +18,8 @@ class RouteSelectionSheet extends StatefulWidget {
     required this.routes,
     required this.origin,
     required this.destination,
+    this.aiWaypoints,
+    this.routeCharacter,
     required this.onRouteSelected,
   });
 
@@ -40,7 +45,7 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
       widget.destination,
       // Add a few points from the first route to ensure good bounds
       if (widget.routes.isNotEmpty)
-        ...decodePolyline(widget.routes[0]['overview_polyline'] ?? ''),
+        ...decodePolyline(widget.routes[0]['overview_polyline'] ?? widget.routes[0]['geometry'] ?? ''),
     ]);
     _mapController.fitCamera(
       CameraFit.bounds(
@@ -72,11 +77,11 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
               ),
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
             child: Text(
-              'Select a Route',
-              style: TextStyle(
+              widget.routes.length == 1 ? 'Route Preview' : 'Select a Route',
+              style: const TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: AppTheme.textPrimary,
@@ -109,14 +114,14 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                         for (int i = 0; i < widget.routes.length; i++)
                           if (i != _selectedIndex)
                             Polyline(
-                              points: decodePolyline(widget.routes[i]['overview_polyline'] ?? ''),
+                              points: decodePolyline(widget.routes[i]['overview_polyline'] ?? widget.routes[i]['geometry'] ?? ''),
                               color: Colors.grey.withValues(alpha: 0.8),
                               strokeWidth: 4.0,
                             ),
                         // Draw selected route on top
                         if (widget.routes.isNotEmpty)
                           Polyline(
-                            points: decodePolyline(widget.routes[_selectedIndex]['overview_polyline'] ?? ''),
+                            points: decodePolyline(widget.routes[_selectedIndex]['overview_polyline'] ?? widget.routes[_selectedIndex]['geometry'] ?? ''),
                             color: AppTheme.accentBlue,
                             strokeWidth: 6.0,
                           ),
@@ -136,6 +141,24 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                           height: 40,
                           child: const Icon(Icons.location_on, color: AppTheme.accentRed, size: 40),
                         ),
+                        // AI waypoint markers
+                        if (widget.aiWaypoints != null)
+                          ...widget.aiWaypoints!.map((wp) => Marker(
+                            point: LatLng(wp.lat, wp.lng),
+                            width: 36,
+                            height: 36,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: AppTheme.accentPurple,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white, width: 2),
+                                boxShadow: [BoxShadow(color: AppTheme.accentPurple.withValues(alpha: 0.4), blurRadius: 6)],
+                              ),
+                              child: Center(
+                                child: Text(wp.emoji, style: const TextStyle(fontSize: 14)),
+                              ),
+                            ),
+                          )),
                       ],
                     ),
                   ],
@@ -181,58 +204,92 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                         width: 2,
                       ),
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
-                        Icon(
-                          Icons.directions_car_rounded,
-                          color: isSelected ? AppTheme.accentBlue : AppTheme.textSecondary,
-                          size: 28,
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Route ${index + 1}',
-                                style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'via Primary Roads',
-                                style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
+                        Row(
                           children: [
-                            Text(
-                              durStr,
-                              style: TextStyle(
-                                color: isSelected ? AppTheme.accentBlue : AppTheme.textPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                            Icon(
+                              Icons.directions_car_rounded,
+                              color: isSelected ? AppTheme.accentBlue : AppTheme.textSecondary,
+                              size: 28,
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Route ${index + 1}',
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'via ${route['summary'] ?? (legs?.isNotEmpty == true ? legs![0]['summary'] : null) ?? 'Primary Roads'}',
+                                    style: const TextStyle(
+                                      color: AppTheme.textSecondary,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$distStr km',
-                              style: TextStyle(
-                                color: AppTheme.textSecondary,
-                                fontSize: 13,
-                              ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  durStr,
+                                  style: TextStyle(
+                                    color: isSelected ? AppTheme.accentBlue : AppTheme.textPrimary,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '$distStr km',
+                                  style: TextStyle(
+                                    color: AppTheme.textSecondary,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
                             ),
                           ],
                         ),
+                        // AI waypoint chips
+                        if (widget.aiWaypoints != null && widget.aiWaypoints!.isNotEmpty && isSelected) ...[
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: widget.aiWaypoints!.map((wp) => Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: AppTheme.accentPurple.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: AppTheme.accentPurple.withValues(alpha: 0.3)),
+                              ),
+                              child: Text(
+                                '${wp.emoji} ${wp.name}',
+                                style: const TextStyle(fontSize: 11, color: AppTheme.accentPurple, fontWeight: FontWeight.w500),
+                              ),
+                            )).toList(),
+                          ),
+                        ],
+                        // Route character description
+                        if (widget.routeCharacter != null && widget.routeCharacter!.isNotEmpty && isSelected) ...[
+                          const SizedBox(height: 8),
+                          Text(
+                            widget.routeCharacter!,
+                            style: TextStyle(fontSize: 11, color: AppTheme.textTertiary, fontStyle: FontStyle.italic),
+                          ),
+                        ],
                       ],
                     ),
                   ),
@@ -257,9 +314,9 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                 ),
-                child: const Text(
-                  'Select Route',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                child: Text(
+                  widget.routes.length == 1 ? 'Confirm & Create Trip' : 'Select Route',
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                 ),
               ),
             ),

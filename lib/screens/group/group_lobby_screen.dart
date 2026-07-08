@@ -265,6 +265,74 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                                             ),
                                           ],
                                         ),
+                                        // Route Mode Badge
+                                        const SizedBox(height: 14),
+                                        Container(
+                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                          decoration: BoxDecoration(
+                                            color: group.route.isAdventure
+                                                ? AppTheme.accentPurple.withValues(alpha: 0.15)
+                                                : AppTheme.accentBlue.withValues(alpha: 0.1),
+                                            borderRadius: BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: group.route.isAdventure
+                                                  ? AppTheme.accentPurple.withValues(alpha: 0.3)
+                                                  : AppTheme.accentBlue.withValues(alpha: 0.2),
+                                            ),
+                                          ),
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(group.route.routeModeEmoji, style: const TextStyle(fontSize: 14)),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                '${group.route.routeModeTitle} Mode',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  color: group.route.isAdventure ? AppTheme.accentPurple : AppTheme.accentBlue,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        // AI Waypoints
+                                        if (group.route.aiWaypoints.isNotEmpty) ...[
+                                          const SizedBox(height: 14),
+                                          ...group.route.aiWaypoints.map((wp) => Padding(
+                                            padding: const EdgeInsets.only(bottom: 8),
+                                            child: Row(
+                                              children: [
+                                                Text(wp.emoji, style: const TextStyle(fontSize: 16)),
+                                                const SizedBox(width: 10),
+                                                Expanded(
+                                                  child: Column(
+                                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                                    children: [
+                                                      Text(
+                                                        wp.name,
+                                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                                                      ),
+                                                      if (wp.reason.isNotEmpty)
+                                                        Text(
+                                                          wp.reason,
+                                                          style: const TextStyle(fontSize: 11, color: AppTheme.textTertiary),
+                                                        ),
+                                                    ],
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          )),
+                                        ],
+                                        // Route Character
+                                        if (group.route.routeCharacter.isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            group.route.routeCharacter,
+                                            style: const TextStyle(fontSize: 12, color: AppTheme.textTertiary, fontStyle: FontStyle.italic),
+                                          ),
+                                        ],
                                       ],
                                     )
                                   : Center(

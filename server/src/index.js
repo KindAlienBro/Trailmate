@@ -9,10 +9,12 @@ const { Server } = require('socket.io');
 const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
 const olaProxyRoutes = require('./routes/olaProxy');
+const smartRouteRoutes = require('./routes/smartRoute');
 const { authenticateSocket } = require('./middleware/auth');
 const { setupLocationHub } = require('./sockets/locationHub');
 const { setupAlertEngine } = require('./sockets/alertEngine');
 const { setupRouteSync } = require('./sockets/routeSync');
+const { setupSmartSuggestions } = require('./sockets/smartSuggestions');
 
 const app = express();
 const server = http.createServer(app);
@@ -36,6 +38,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/maps', olaProxyRoutes);
+app.use('/api/maps', smartRouteRoutes);
 
 // ==================== Socket.IO Setup ====================
 const io = new Server(server, {
@@ -54,6 +57,7 @@ io.use(authenticateSocket);
 setupLocationHub(io);
 setupAlertEngine(io);
 setupRouteSync(io);
+setupSmartSuggestions(io);
 
 // Make io accessible from routes if needed
 app.set('io', io);
@@ -66,7 +70,7 @@ mongoose.connect(MONGODB_URI)
   .then(() => {
     console.log('✅ Connected to MongoDB');
 
-    server.listen(PORT, () => {
+    server.listen(PORT, '0.0.0.0', () => {
       console.log(`\n🚀 TrailMate Server running on port ${PORT}`);
       console.log(`   REST API:  http://localhost:${PORT}/api`);
       console.log(`   WebSocket: ws://localhost:${PORT}`);

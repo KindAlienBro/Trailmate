@@ -5,6 +5,8 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
@@ -12,9 +14,10 @@ import '../../providers/group_provider.dart';
 import '../../providers/navigation_provider.dart';
 import '../../widgets/alert_banner.dart';
 import '../../widgets/sos_button.dart';
-import '../../widgets/poi_card.dart';
 import '../../widgets/directions_banner.dart';
+import '../../widgets/poi_card.dart';
 import '../../widgets/rerouting_banner.dart';
+import '../../widgets/suggestion_card.dart';
 import '../../widgets/trip_bottom_sheet.dart';
 import '../../widgets/map_widget.dart';
 import 'arrival_screen.dart';
@@ -294,6 +297,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   isDrivingMode: _navState == NavigationState.active,
                   initialRouteBearing: navProvider.initialRouteBearing,
                   deviceHeading: _deviceHeading,
+                  aiWaypoints: groupProvider.currentGroup?.route.aiWaypoints ?? [],
+                  onWaypointTap: (wp) => _showWaypointDetails(context, wp),
                 ),
               ),
 
@@ -309,6 +314,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                             ? const ReroutingBanner()
                             : DirectionsBanner(
                                 currentStep: navProvider.currentStep,
+                                upcomingStep: navProvider.upcomingStep,
                                 distanceToNextManeuver: navProvider.distanceToNextStep,
                               )
                       else
@@ -516,6 +522,32 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                             ],
                           ),
                         ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 3.8 Suggestion Card Layer
+              if (_navState == NavigationState.active && navProvider.activeSuggestion != null)
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 140), // Sit above the trip bottom sheet
+                      child: SuggestionCard(
+                        suggestion: navProvider.activeSuggestion!,
+                        onDismiss: navProvider.dismissSuggestion,
+                        onNavigate: () {
+                          final suggestionName = navProvider.activeSuggestion!.name;
+                          navProvider.dismissSuggestion();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text('Adding $suggestionName to your route...'),
+                              behavior: SnackBarBehavior.floating,
+                            ),
+                          );
+                          // Future: implement dynamic re-routing with the new waypoint
+                        },
                       ),
                     ),
                   ),
@@ -802,6 +834,233 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
           const SizedBox(height: 8),
           Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
         ],
+      ),
+    );
+  }
+
+  Future<Map<String, String>> _fetchWikiData(String query, double lat, double lng) async {
+    try {
+      // Use geosearch to find Wikipedia articles near the exact coordinates (within 5km)
+      final uri = Uri.parse('https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggscoord=$lat|$lng&ggsradius=5000&ggslimit=10&prop=pageimages|extracts&exintro&explaintext&pithumbsize=600&format=json');
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final pages = data['query']?['pages'] as Map<String, dynamic>?;
+        if (pages != null && pages.isNotEmpty) {
+          // Find the first page that has a thumbnail
+          Map<String, dynamic>? bestPage;
+          for (final page in pages.values) {
+            if (page['thumbnail'] != null && page['thumbnail']['source'] != null) {
+              bestPage = page as Map<String, dynamic>;
+              break;
+            }
+          }
+          // Fallback to the very first result if none have images
+          bestPage ??= pages.values.first as Map<String, dynamic>;
+          
+          if (bestPage['pageid'] != null) {
+            return {
+              'image': bestPage['thumbnail']?['source'] ?? '',
+              'extract': bestPage['extract'] ?? '',
+            };
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Wiki fetch error: $e');
+    }
+    return {'image': '', 'extract': ''};
+  }
+
+  void _showWaypointDetails(BuildContext context, AIWaypoint wp) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.65,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (_, controller) => Container(
+          decoration: BoxDecoration(
+            color: AppTheme.primaryDark,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: AppTheme.borderDark),
+          ),
+          child: FutureBuilder<Map<String, String>>(
+            future: _fetchWikiData(wp.name, wp.lat, wp.lng),
+            builder: (context, snapshot) {
+              final isLoading = snapshot.connectionState == ConnectionState.waiting;
+              final wikiData = snapshot.data ?? {'image': '', 'extract': ''};
+              final hasImage = wikiData['image']!.isNotEmpty;
+              final hasExtract = wikiData['extract']!.isNotEmpty;
+
+              return Column(
+                children: [
+                  // Pull tab
+                  Center(
+                    child: Container(
+                      margin: const EdgeInsets.symmetric(vertical: 12),
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: AppTheme.textTertiary.withValues(alpha: 0.5),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      controller: controller,
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                      children: [
+                        // Cover Photo
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            height: 200,
+                            color: AppTheme.surfaceDark,
+                            child: Stack(
+                              fit: StackFit.expand,
+                              children: [
+                                if (isLoading)
+                                  const Center(child: CircularProgressIndicator())
+                                else if (hasImage)
+                                  Image.network(
+                                    wikiData['image']!,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Center(
+                                      child: Icon(Icons.landscape_rounded, size: 64, color: AppTheme.textTertiary),
+                                    ),
+                                  )
+                                else
+                                  const Center(
+                                    child: Icon(Icons.landscape_rounded, size: 64, color: AppTheme.textTertiary),
+                                  ),
+                                Positioned(
+                                  top: 12,
+                                  right: 12,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.black.withValues(alpha: 0.6),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.favorite_border_rounded, color: Colors.white, size: 20),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        Row(
+                          children: [
+                            Text(wp.emoji, style: const TextStyle(fontSize: 32)),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    wp.name,
+                                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    wp.type.toUpperCase().replaceAll('_', ' '),
+                                    style: const TextStyle(color: AppTheme.accentBlue, fontSize: 13, fontWeight: FontWeight.w600),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Why we recommended this:',
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          wp.reason,
+                          style: const TextStyle(fontSize: 15, color: AppTheme.textSecondary, height: 1.5),
+                        ),
+                        const SizedBox(height: 24),
+                        
+                        // Factual Info Section
+                        const Text(
+                          'Factual Information',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                        ),
+                        const SizedBox(height: 16),
+                        if (isLoading)
+                          const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                        else if (hasExtract)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceDark,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppTheme.borderDark),
+                            ),
+                            child: Text(
+                              wikiData['extract']!,
+                              style: const TextStyle(color: AppTheme.textSecondary, height: 1.5, fontSize: 14),
+                            ),
+                          )
+                        else
+                          const Text(
+                            'No extended factual information available from Open Data sources.',
+                            style: TextStyle(color: AppTheme.textTertiary, fontStyle: FontStyle.italic),
+                          ),
+                      ],
+                    ),
+                  ),
+                  // Action Bar
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryDark,
+                      border: Border(top: BorderSide(color: AppTheme.borderDark)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: AppTheme.surfaceDark,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: AppTheme.borderDark),
+                            ),
+                            child: const Center(
+                              child: Text('Save', style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          flex: 2,
+                          child: Container(
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color: AppTheme.accentBlue,
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Center(
+                              child: Text('Navigate', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
       ),
     );
   }

@@ -24,6 +24,7 @@ class WebSocketService {
   final _routeUpdateController = StreamController<Map<String, dynamic>>.broadcast();
   final _tripEventController = StreamController<Map<String, dynamic>>.broadcast();
   final _memberEventController = StreamController<Map<String, dynamic>>.broadcast();
+  final _suggestionController = StreamController<Map<String, dynamic>>.broadcast();
 
   // Public streams
   Stream<Map<String, dynamic>> get locationUpdates => _locationUpdateController.stream;
@@ -33,6 +34,7 @@ class WebSocketService {
   Stream<Map<String, dynamic>> get routeUpdates => _routeUpdateController.stream;
   Stream<Map<String, dynamic>> get tripEvents => _tripEventController.stream;
   Stream<Map<String, dynamic>> get memberEvents => _memberEventController.stream;
+  Stream<Map<String, dynamic>> get suggestions => _suggestionController.stream;
 
   bool get isConnected => _isConnected;
 
@@ -163,6 +165,13 @@ class WebSocketService {
     socket.on('error', (data) {
       debugPrint('[WS] Server error: $data');
     });
+
+    // ==================== Smart Suggestion Events ====================
+    socket.on('suggestion:show', (data) {
+      if (data is Map<String, dynamic>) {
+        _suggestionController.add(data);
+      }
+    });
   }
 
   // ==================== Emit Methods ====================
@@ -291,6 +300,25 @@ class WebSocketService {
     _socket?.emit('member:joined', {'groupId': groupId});
   }
 
+  /// Request smart suggestions from the server
+  void checkSuggestions({
+    required String groupId,
+    required double lat,
+    required double lng,
+    required double elapsedMinutes,
+    required double distanceTraveled,
+    bool isStopped = false,
+  }) {
+    _socket?.emit('suggestion:check', {
+      'groupId': groupId,
+      'lat': lat,
+      'lng': lng,
+      'elapsedMinutes': elapsedMinutes,
+      'distanceTraveled': distanceTraveled,
+      'isStopped': isStopped,
+    });
+  }
+
   /// Disconnect from server
   void disconnect() {
     _currentGroupId = null;
@@ -310,5 +338,6 @@ class WebSocketService {
     _routeUpdateController.close();
     _tripEventController.close();
     _memberEventController.close();
+    _suggestionController.close();
   }
 }

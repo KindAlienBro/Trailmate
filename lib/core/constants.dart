@@ -3,14 +3,18 @@
 /// Centralized configuration for the entire app — API endpoints,
 /// alert thresholds, POI categories, and map settings.
 
+import 'package:flutter/foundation.dart';
+
 class AppConstants {
   // ==================== Server ====================
-  /// Backend server base URL
-  static const String serverBaseUrl = 'http://187.127.171.60:4000'; // Wi-Fi IP
-  static const String serverWsUrl = 'http://187.127.171.60:4000';   // Socket.IO URL
+  // Automatically switches based on build mode:
+  // - Debug mode: Uses local Wi-Fi IP (for emulator and real device testing)
+  // - Release mode: Uses Production VPS IP
+  static const String _localServer = 'http://10.37.60.73:3000';
+  static const String _prodServer = 'http://187.127.171.60:4000';
 
-  // For physical device on same WiFi, use your machine's local IP:
-  // static const String serverBaseUrl = 'http://192.168.x.x:3000';
+  static const String serverBaseUrl = kReleaseMode ? _prodServer : _localServer;
+  static const String serverWsUrl = kReleaseMode ? _prodServer : _localServer;
 
   // ==================== API Endpoints ====================
   static const String apiPrefix = '/api';
@@ -34,6 +38,7 @@ class AppConstants {
   static const String distanceMatrixEndpoint = '$apiPrefix/maps/distance-matrix';
   static const String snapToRoadEndpoint = '$apiPrefix/maps/snap-to-road';
   static const String apiUsageEndpoint = '$apiPrefix/maps/usage';
+  static const String smartRouteEndpoint = '$apiPrefix/maps/smart-route';
 
   // ==================== Map Tiles ====================
   static const String olaVectorStyleUrl =
@@ -69,6 +74,25 @@ class AppConstants {
     'Hospital': 'hospital',
     'Hotel': 'lodging',
     'Parking': 'parking',
+  };
+
+  /// Route mode definitions for the intelligence layer
+  static const Map<String, Map<String, String>> routeModes = {
+    'highway': {
+      'title': 'Highway',
+      'subtitle': 'Fastest route. Highways, expressways, no detours.',
+      'emoji': '🛣️',
+    },
+    'adventure': {
+      'title': 'Adventure',
+      'subtitle': 'Scenic detours, curvy roads, ghats & hill routes.',
+      'emoji': '🏔️',
+    },
+    'full_adventure': {
+      'title': 'Full Adventure',
+      'subtitle': 'Jungle trails, water crossings, mountain passes.',
+      'emoji': '🌊',
+    },
   };
 
   /// Icons for each POI category

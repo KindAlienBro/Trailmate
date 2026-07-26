@@ -1,10 +1,16 @@
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
 
 /**
- * JWT Authentication Middleware
- * Extracts and verifies JWT token from Authorization header.
- * Attaches the user object to req.user on success.
+ * JWT Authentication Middleware — Single-Login Architecture
+ *
+ * TrailMate AI uses a single login: the FastAPI backend issues the JWT,
+ * and this Node.js group server validates the SAME token using the
+ * shared JWT_SECRET. No MongoDB User lookup is needed for authentication.
+ *
+ * The JWT payload is expected to contain:
+ *   - userId (string): user's UUID from PostgreSQL
+ *   - name   (string): user's display name
+ *   - email  (string): user's email
  */
 const authenticate = async (req, res, next) => {
   try {
@@ -16,13 +22,14 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    const user = await User.findById(decoded.userId).select('-passwordHash');
-    if (!user) {
-      return res.status(401).json({ error: 'User not found' });
-    }
+    // Use payload directly — no MongoDB user lookup
+    req.user = {
+      id: decoded.userId || decoded.sub,
+      name: decoded.name || decoded.username || 'Unknown',
+      email: decoded.email || '',
+    };
+    req.userId = req.user.id;
 
-    req.user = user;
-    req.userId = user._id.toString();
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -34,7 +41,7 @@ const authenticate = async (req, res, next) => {
 
 /**
  * Socket.IO Authentication Middleware
- * Verifies JWT from socket handshake auth.
+ * Verifies JWT from socket handshake auth using the same JWT_SECRET.
  */
 const authenticateSocket = async (socket, next) => {
   try {
@@ -44,13 +51,14 @@ const authenticateSocket = async (socket, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-passwordHash');
-    if (!user) {
-      return next(new Error('User not found'));
-    }
 
-    socket.user = user;
-    socket.userId = user._id.toString();
+    socket.user = {
+      id: decoded.userId || decoded.sub,
+      name: decoded.name || decoded.username || 'Unknown',
+      email: decoded.email || '',
+    };
+    socket.userId = socket.user.id;
+
     next();
   } catch (error) {
     next(new Error('Authentication failed'));

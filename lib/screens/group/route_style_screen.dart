@@ -554,8 +554,8 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                         _buildRouteModeCard(
                           mode: 'cultural',
                           icon: Icons.account_balance_rounded,
-                          title: '🕌  Cultural & Heritage',
-                          subtitle: 'Museums, ancient temples, monuments.',
+                          title: '🕌  Cultural & Spiritual',
+                          subtitle: 'Museums, ancient temples, monuments, ashrams.',
                           gradient: const LinearGradient(colors: [Color(0xFF6A1B9A), Color(0xFF4A148C)]),
                         ),
                         _buildRouteModeCard(
@@ -571,13 +571,6 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                           title: '🏖️  Coastal Route',
                           subtitle: 'Beaches, marinas, scenic coastlines.',
                           gradient: const LinearGradient(colors: [Color(0xFF00838F), Color(0xFF006064)]),
-                        ),
-                        _buildRouteModeCard(
-                          mode: 'spiritual',
-                          icon: Icons.self_improvement_rounded,
-                          title: '🧘  Spiritual Route',
-                          subtitle: 'Ashrams, monasteries, retreats.',
-                          gradient: const LinearGradient(colors: [Color(0xFFF9A825), Color(0xFFF57F17)]),
                         ),
                         _buildRouteModeCard(
                           mode: 'wildlife',

@@ -7,10 +7,12 @@ import 'package:flutter/foundation.dart';
 
 class AppConstants {
   // ==================== Server ====================
-  // Automatically switches based on build mode:
-  // - Debug mode: Uses local Wi-Fi IP (for emulator and real device testing)
-  // - Release mode: Uses Production VPS IP
-  static const String _localServer = 'http://10.37.60.73:3000';
+  // Debug mode: Uses localhost via `adb reverse` (works on ANY network).
+  //   → Run once per USB connection: adb reverse tcp:3000 tcp:3000
+  //   → This tunnels phone's localhost:3000 → PC's localhost:3000 via USB.
+  //   → Works on real devices AND emulators, no Wi-Fi IP needed.
+  // Release mode: Uses Production VPS IP.
+  static const String _localServer = 'http://127.0.0.1:3000';
   static const String _prodServer = 'http://187.127.171.60:4000';
 
   static const String serverBaseUrl = kReleaseMode ? _prodServer : _localServer;

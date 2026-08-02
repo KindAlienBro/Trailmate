@@ -87,13 +87,26 @@ router.post('/login', async (req, res) => {
     res.json({
       message: 'Login successful',
       token,
-      user: user.toJSON(),
+      user: safeUserJSON(user),
     });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Server error during login' });
   }
 });
+function safeUserJSON(user) {
+  if (!user) return null;
+  if (typeof user.toJSON === 'function') return user.toJSON();
+  if (typeof user.toObject === 'function') {
+    const obj = user.toObject();
+    delete obj.passwordHash;
+    return obj;
+  }
+  // Fallback if it's a plain object
+  const obj = user._doc ? { ...user._doc } : { ...user };
+  delete obj.passwordHash;
+  return obj;
+}
 
 /**
  * GET /api/auth/me
@@ -101,7 +114,7 @@ router.post('/login', async (req, res) => {
  */
 router.get('/me', authenticate, async (req, res) => {
   try {
-    res.json({ user: req.user.toJSON() });
+    res.json({ user: safeUserJSON(req.user) });
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ error: 'Server error' });
@@ -122,7 +135,7 @@ router.put('/me', authenticate, async (req, res) => {
     if (avatar) user.avatar = avatar;
 
     await user.save();
-    res.json({ user: user.toJSON() });
+    res.json({ user: safeUserJSON(user) });
   } catch (error) {
     console.error('Update profile error:', error);
     res.status(500).json({ error: 'Server error' });

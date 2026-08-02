@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'services/ola_tile_proxy.dart';
-
-import 'core/theme.dart';
 import 'providers/auth_provider.dart';
 import 'providers/group_provider.dart';
 import 'providers/navigation_provider.dart';
+
+import 'providers/theme_provider.dart';
+import 'core/theme.dart';
+import 'core/app_colors.dart';
+import 'services/ola_tile_proxy.dart';
 
 import 'screens/splash_screen.dart';
 import 'screens/auth/login_screen.dart';
@@ -20,42 +22,57 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await OlaTileProxy.start();
   
+  final themeProvider = ThemeProvider();
+  await themeProvider.initialize();
+  
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: themeProvider),
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => GroupProvider()),
         ChangeNotifierProvider(create: (_) => NavigationProvider()),
       ],
-      child: const TrailMateApp(),
+      child: RoUniityApp(),
     ),
   );
 }
 
-class TrailMateApp extends StatelessWidget {
-  const TrailMateApp({super.key});
+class RoUniityApp extends StatelessWidget {
+  RoUniityApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'TrailMate',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.darkTheme,
-      initialRoute: '/',
+    return Consumer<ThemeProvider>(
+      builder: (context, themeProvider, child) {
+        return AppColors(
+          colors: themeProvider.colors,
+          child: MaterialApp(
+            title: 'RoUniity',
+            debugShowCheckedModeBanner: false,
+            theme: AppTheme.buildTheme(themeProvider.colors),
+            builder: (context, child) {
+              return AnimatedTheme(
+                data: AppTheme.buildTheme(themeProvider.colors),
+                duration: Duration(milliseconds: 400),
+                child: child!,
+              );
+            },
+            initialRoute: '/',
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/':
-            return MaterialPageRoute(builder: (_) => const SplashScreen());
+            return MaterialPageRoute(builder: (_) => SplashScreen());
           case '/login':
-            return MaterialPageRoute(builder: (_) => const LoginScreen());
+            return MaterialPageRoute(builder: (_) => LoginScreen());
           case '/register':
-            return MaterialPageRoute(builder: (_) => const RegisterScreen());
+            return MaterialPageRoute(builder: (_) => RegisterScreen());
           case '/home':
-            return MaterialPageRoute(builder: (_) => const HomeScreen());
+            return MaterialPageRoute(builder: (_) => HomeScreen());
           case '/create-group':
-            return MaterialPageRoute(builder: (_) => const CreateGroupScreen());
+            return MaterialPageRoute(builder: (_) => CreateGroupScreen());
           case '/join-group':
-            return MaterialPageRoute(builder: (_) => const JoinGroupScreen());
+            return MaterialPageRoute(builder: (_) => JoinGroupScreen());
           case '/group-lobby':
             final groupId = settings.arguments as String;
             return MaterialPageRoute(builder: (_) => GroupLobbyScreen(groupId: groupId));
@@ -64,11 +81,14 @@ class TrailMateApp extends StatelessWidget {
             return MaterialPageRoute(builder: (_) => LiveNavigationScreen(groupId: groupId));
           default:
             return MaterialPageRoute(
-              builder: (_) => const Scaffold(
+              builder: (_) => Scaffold(
                 body: Center(child: Text('Page not found')),
               ),
             );
         }
+      },
+          ),
+        );
       },
     );
   }

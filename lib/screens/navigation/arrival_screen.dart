@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../../core/app_colors.dart';
 import '../../core/theme.dart';
 
 /// Beautiful "You've Arrived!" overlay screen with trip stats.
@@ -8,7 +9,7 @@ class ArrivalScreen extends StatefulWidget {
   final Duration tripDuration;
   final VoidCallback onDone;
 
-  const ArrivalScreen({
+  ArrivalScreen({
     super.key,
     required this.totalDistance,
     required this.tripDuration,
@@ -32,13 +33,13 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
 
     _fadeController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 600),
+      duration: Duration(milliseconds: 600),
     );
     _fadeAnim = CurvedAnimation(parent: _fadeController, curve: Curves.easeOut);
 
     _checkController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 800),
+      duration: Duration(milliseconds: 800),
     );
     _checkAnim = CurvedAnimation(parent: _checkController, curve: Curves.elasticOut);
     _scaleAnim = Tween<double>(begin: 0.0, end: 1.0).animate(_checkAnim);
@@ -79,6 +80,7 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     return FadeTransition(
       opacity: _fadeAnim,
       child: Container(
@@ -90,7 +92,7 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
               margin: const EdgeInsets.all(32),
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
+                gradient: LinearGradient(
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: [Color(0xFF1A237E), Color(0xFF0D1B2A)],
@@ -102,7 +104,7 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                 ),
                 boxShadow: [
                   BoxShadow(
-                    color: AppTheme.accentBlue.withValues(alpha: 0.2),
+                    color: colors.accentPrimary.withValues(alpha: 0.2),
                     blurRadius: 40,
                     spreadRadius: 5,
                   ),
@@ -118,27 +120,27 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                       width: 90,
                       height: 90,
                       decoration: BoxDecoration(
-                        gradient: AppTheme.accentGradient,
+                        gradient: colors.accentGradient,
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: AppTheme.accentGreen.withValues(alpha: 0.4),
+                            color: colors.accentSecondary.withValues(alpha: 0.4),
                             blurRadius: 24,
                             spreadRadius: 4,
                           ),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.check_rounded,
                         color: Colors.white,
                         size: 48,
                       ),
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  SizedBox(height: 28),
 
                   // Title
-                  const Text(
+                  Text(
                     "You've Arrived!",
                     style: TextStyle(
                       fontSize: 28,
@@ -147,7 +149,7 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                       letterSpacing: -0.5,
                     ),
                   ),
-                  const SizedBox(height: 8),
+                  SizedBox(height: 8),
                   Text(
                     'Trip completed',
                     style: TextStyle(
@@ -156,7 +158,7 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                       fontWeight: FontWeight.w500,
                     ),
                   ),
-                  const SizedBox(height: 36),
+                  SizedBox(height: 36),
 
                   // Stats row
                   Container(
@@ -197,14 +199,14 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                       ],
                     ),
                   ),
-                  const SizedBox(height: 36),
+                  SizedBox(height: 36),
 
                   // Done button
                   SizedBox(
                     width: double.infinity,
                     height: 56,
                     child: Container(
-                      decoration: accentButtonDecoration(),
+                      decoration: themedAccentButton(colors),
                       child: ElevatedButton(
                         onPressed: widget.onDone,
                         style: ElevatedButton.styleFrom(
@@ -214,7 +216,7 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                             borderRadius: BorderRadius.circular(14),
                           ),
                         ),
-                        child: const Text(
+                        child: Text(
                           'Done',
                           style: TextStyle(
                             fontSize: 18,
@@ -235,20 +237,21 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
   }
 
   Widget _buildStat(IconData icon, String label, String value) {
+    final colors = AppColors.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 20, color: AppTheme.accentBlue),
-        const SizedBox(height: 8),
+        Icon(icon, size: 20, color: colors.accentPrimary),
+        SizedBox(height: 8),
         Text(
           value,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.w800,
             color: Colors.white,
           ),
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: 4),
         Text(
           label,
           style: TextStyle(

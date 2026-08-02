@@ -61,6 +61,7 @@ class NavigationProvider extends ChangeNotifier {
 
   // Arrival
   bool _hasArrived = false;
+  bool _reachedLeader = false;
   DateTime? _tripStartTime;
   double _totalDistanceTraveled = 0; // meters
 
@@ -74,6 +75,12 @@ class NavigationProvider extends ChangeNotifier {
   WaypointSuggestion? _activeSuggestion;
   Timer? _suggestionTimer;
   DateTime? _lastMoveTime;
+
+  // Quick Stops / Detour
+  List<LatLng> _detourPolyline = [];
+  List<RouteStep> _detourSteps = [];
+  NearbyPlace? _selectedStop;
+  String? _activeStopCategory;
 
   // Getters
   WebSocketService get wsService => _wsService;
@@ -101,6 +108,13 @@ class NavigationProvider extends ChangeNotifier {
   double get totalDistanceTraveled => _totalDistanceTraveled;
   bool get ttsEnabled => _ttsEnabled;
   WaypointSuggestion? get activeSuggestion => _activeSuggestion;
+  List<LatLng> get detourPolyline => _detourPolyline;
+
+  List<LatLng> _sosPolyline = [];
+  List<LatLng> get sosPolyline => _sosPolyline;
+  List<RouteStep> get detourSteps => _detourSteps;
+  NearbyPlace? get selectedStop => _selectedStop;
+  String? get activeStopCategory => _activeStopCategory;
 
   /// Initialize with auth token
   void initialize(String token, String currentUserId, String currentUserName) {
@@ -264,7 +278,33 @@ class NavigationProvider extends ChangeNotifier {
         if (type == 'deviation') {
           _queueSpeak('Warning, ${data['name']} has deviated from the route.', priority: TtsPriority.high);
         } else if (type == 'separation') {
-          _queueSpeak('Warning, ${data['name']} has fallen behind the group.', priority: TtsPriority.high);
+          _queueSpeak('${data['name']} has fallen behind the group.', priority: TtsPriority.high);
+        } else if (type == 'regroup') {
+          _queueSpeak('${data['name']} has requested a regroup at their location.', priority: TtsPriority.high);
+          alert.onNavigate = () {
+            if (data['lat'] != null && data['lng'] != null) {
+              final regroupPlace = NearbyPlace(
+                name: 'Regroup Location',
+                type: 'Regroup',
+                lat: data['lat'],
+                lng: data['lng'],
+              );
+              selectStop(regroupPlace);
+            }
+          };
+        } else if (type == 'stopRequest') {
+          _queueSpeak('${data['name']} is requesting a stop for ${data['reason'] ?? 'a break'}.', priority: TtsPriority.high);
+          alert.onNavigate = () {
+            if (data['lat'] != null && data['lng'] != null) {
+              final stopPlace = NearbyPlace(
+                name: '${data['name']} Stop Request',
+                type: 'Stop',
+                lat: data['lat'],
+                lng: data['lng'],
+              );
+              selectStop(stopPlace);
+            }
+          };
         } else if (type == 'backOnRoute') {
           _queueSpeak('${data['name']} is back on the route.', priority: TtsPriority.normal);
         }
@@ -289,21 +329,37 @@ class NavigationProvider extends ChangeNotifier {
       _wsService.sosEvents.listen((data) {
         final type = data['type'] as String;
         if (type == 'triggered') {
+          final userId = data['userId'];
+          // Deduplicate SOS alerts for the same user
+          if (_activeAlerts.any((a) => a.type == 'sos' && a.userId == userId)) {
+            return;
+          }
+
           _isSosActive = true;
-          _sosUserId = data['userId'];
+          _sosUserId = userId;
+          
+          final lat = (data['lat'] as num?)?.toDouble();
+          final lng = (data['lng'] as num?)?.toDouble();
+
           _activeAlerts.add(AlertData(
             type: 'sos',
-            userId: data['userId'] ?? '',
+            userId: userId ?? '',
             name: data['name'] ?? '',
             message: data['message'] ?? 'Emergency!',
             timestamp: DateTime.now(),
-            lat: (data['lat'] as num?)?.toDouble(),
-            lng: (data['lng'] as num?)?.toDouble(),
+            lat: lat,
+            lng: lng,
+            onNavigate: (lat != null && lng != null) ? () => fetchSosRoute(lat, lng) : null,
           ));
           _queueSpeak('SOS Emergency! ${data['name']} needs help. SOS triggered.', priority: TtsPriority.urgent);
         } else if (type == 'cancelled') {
           _isSosActive = false;
-          _sosUserId = null;
+          final userId = data['userId'];
+          if (userId == _sosUserId) {
+            _sosUserId = null;
+            _sosPolyline = [];
+          }
+          _activeAlerts.removeWhere((a) => a.type == 'sos' && a.userId == userId);
           _queueSpeak('SOS has been cancelled.', priority: TtsPriority.high);
         }
         notifyListeners();
@@ -439,10 +495,24 @@ class NavigationProvider extends ChangeNotifier {
 
                 // 4c. Arrival Detection
                 if (_currentStepIndex >= _routeSteps.length - 1 && distToTurn < 50.0) {
-                  if (!_hasArrived) {
-                    _hasArrived = true;
-                    _queueSpeak('You have arrived at your destination.', priority: TtsPriority.high);
-                    notifyListeners();
+                  final isLeader = _navigatingGroup?.isLeader(_currentUserId!) ?? true;
+                  
+                  if (isLeader) {
+                    if (!_hasArrived) {
+                      _hasArrived = true;
+                      _queueSpeak('You have arrived at your destination.', priority: TtsPriority.high);
+                      notifyListeners();
+                    }
+                  } else {
+                    if (!_reachedLeader) {
+                      _reachedLeader = true;
+                      _queueSpeak('You have caught up to the trip leader.', priority: TtsPriority.normal);
+                      // Clear the route so we re-fetch if/when the leader moves further away
+                      _routePolyline = [];
+                      _routeSteps = [];
+                      _currentStepIndex = 0;
+                      notifyListeners();
+                    }
                   }
                 }
 
@@ -528,6 +598,7 @@ class NavigationProvider extends ChangeNotifier {
     _navigatingGroup = group;
     _isNavigating = true;
     _hasArrived = false;
+    _reachedLeader = false;
     _tripStartTime = DateTime.now();
     _totalDistanceTraveled = 0;
     _currentStepIndex = 0;
@@ -702,6 +773,7 @@ class NavigationProvider extends ChangeNotifier {
           }
         }
         
+        _reachedLeader = false;
         notifyListeners();
         debugPrint('[Navigation] Personal route calculated: ${_routeDistance}m, ${_routeSteps.length} steps');
       }
@@ -711,18 +783,48 @@ class NavigationProvider extends ChangeNotifier {
   }
 
   /// Fetch nearby places of a given type
-  Future<void> fetchNearbyPlaces(double lat, double lng, String type) async {
+  Future<void> fetchNearbyPlaces(double lat, double lng, String type, {int radius = 1500}) async {
     try {
       final result = await _olaMapsService.nearbySearch(
         lat: lat,
         lng: lng,
         type: type,
+        radius: radius,
       );
 
       final predictions = result['predictions'] as List? ?? [];
-      _nearbyPlaces = predictions
-          .map((p) => NearbyPlace.fromJson(p))
-          .toList();
+      if (predictions.isNotEmpty) {
+        debugPrint('Raw first prediction: ${predictions.first}');
+      }
+      _nearbyPlaces = predictions.map((p) {
+        final place = NearbyPlace.fromJson(p);
+        debugPrint('Parsed place: ${place.name} -> lat: ${place.lat}, lng: ${place.lng}');
+        if (place.lat != null && place.lng != null) {
+          final distanceMeters = const Distance().as(
+            LengthUnit.Meter,
+            LatLng(lat, lng),
+            LatLng(place.lat!, place.lng!),
+          );
+          return place.copyWith(distance: distanceMeters.toDouble());
+        }
+        return place;
+      }).where((place) {
+        final name = place.name.toLowerCase();
+        if (type == 'gas_station') {
+          if (name.contains('water') || name.contains('pumping station') || name.contains('pump house')) {
+            if (!name.contains('petrol') && !name.contains('fuel')) {
+              return false;
+            }
+          }
+        } else if (type == 'restaurant') {
+          if (name.contains('bus stop') || name.contains('bus stand') || name.contains('metro station')) {
+            if (!name.contains('restaurant') && !name.contains('cafe') && !name.contains('food')) {
+              return false;
+            }
+          }
+        }
+        return true;
+      }).toList();
       notifyListeners();
     } catch (e) {
       debugPrint('Nearby search error: $e');
@@ -746,6 +848,130 @@ class NavigationProvider extends ChangeNotifier {
   /// Dismiss the active suggestion
   void dismissSuggestion() {
     _activeSuggestion = null;
+    notifyListeners();
+  }
+
+  /// Select a nearby stop and fetch detour route to it
+  Future<void> selectStop(NearbyPlace stop) async {
+    _selectedStop = stop;
+    notifyListeners();
+
+    // Fetch route from current position to the stop
+    final pos = _locationService.lastPosition;
+    if (pos != null && stop.lat != null && stop.lng != null) {
+      debugPrint('==== FETCHING DETOUR ====');
+      debugPrint('Origin: ${pos.latitude}, ${pos.longitude}');
+      debugPrint('Dest: ${stop.lat}, ${stop.lng}');
+      try {
+        final result = await _olaMapsService.getDirections(
+          originLat: pos.latitude,
+          originLng: pos.longitude,
+          destLat: stop.lat!,
+          destLng: stop.lng!,
+        );
+
+        debugPrint('Detour API Response status: ${result['status'] ?? 'No Status'}');
+        
+        // Parse polyline from response
+        final routes = result['routes'] as List?;
+        if (routes != null && routes.isNotEmpty) {
+          final overviewPolyline = routes[0]['overview_polyline'];
+          debugPrint('Overview Polyline Object: $overviewPolyline');
+          if (overviewPolyline != null) {
+            final encoded = overviewPolyline is String ? overviewPolyline : overviewPolyline['points'];
+            if (encoded is String) {
+              _detourPolyline = decodePolyline(encoded);
+              debugPrint('Decoded detour points count: ${_detourPolyline.length}');
+            } else {
+              debugPrint('Encoded polyline is not a string: $encoded');
+            }
+          } else {
+            debugPrint('No overview_polyline in route');
+          }
+          
+          // Parse detour steps
+          _detourSteps.clear();
+          final legs = routes[0]['legs'] as List?;
+          if (legs != null && legs.isNotEmpty) {
+            final steps = legs[0]['steps'] as List?;
+            if (steps != null) {
+              for (final step in steps) {
+                try {
+                  _detourSteps.add(RouteStep.fromJson(step));
+                } catch (e) {
+                  debugPrint('Error parsing detour step: $e');
+                }
+              }
+            }
+          }
+        } else {
+          debugPrint('No routes found in API response for detour');
+        }
+        notifyListeners();
+      } catch (e, stackTrace) {
+        debugPrint('Detour error: $e\n$stackTrace');
+      }
+    } else {
+      debugPrint('Cannot fetch detour: pos=$pos, lat=${stop.lat}, lng=${stop.lng}');
+    }
+  }
+
+  /// Fetches an SOS route to a distressed user and renders it as a red polyline
+  Future<void> fetchSosRoute(double destLat, double destLng) async {
+    if (_locationService.lastPosition == null) {
+      debugPrint('Cannot fetch SOS route: pos is null');
+      return;
+    }
+    debugPrint('==== FETCHING SOS ROUTE ====');
+    try {
+      final pos = _locationService.lastPosition!;
+      final result = await _olaMapsService.getDirections(
+        originLat: pos.latitude,
+        originLng: pos.longitude,
+        destLat: destLat,
+        destLng: destLng,
+      );
+
+      debugPrint('SOS API Response status: ${result['status'] ?? 'No Status'}');
+      
+      final routes = result['routes'] as List?;
+      if (routes != null && routes.isNotEmpty) {
+        final route = routes.first;
+        final overviewPolyline = route['overview_polyline'];
+        debugPrint('Overview Polyline Object for SOS: $overviewPolyline');
+        if (overviewPolyline != null) {
+          final encoded = overviewPolyline['points'] ?? overviewPolyline;
+          if (encoded is String) {
+            _sosPolyline = decodePolyline(encoded);
+            debugPrint('Decoded SOS points count: ${_sosPolyline.length}');
+            notifyListeners();
+          } else {
+            debugPrint('Encoded SOS polyline is not a string: $encoded');
+          }
+        } else {
+          debugPrint('No overview_polyline in SOS route');
+        }
+      } else {
+        debugPrint('No routes found in API response for SOS');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('SOS routing error: $e\n$stackTrace');
+    }
+  }
+
+
+  /// Clear the selected stop and detour route
+  void clearStop() {
+    _selectedStop = null;
+    _detourPolyline = [];
+    _detourSteps = [];
+    _activeStopCategory = null;
+    notifyListeners();
+  }
+
+  /// Set the active stop category (for highlighting in the UI)
+  void setActiveStopCategory(String? category) {
+    _activeStopCategory = category;
     notifyListeners();
   }
 
@@ -826,6 +1052,7 @@ class AlertData {
   final DateTime timestamp;
   final double? lat;
   final double? lng;
+  VoidCallback? onNavigate;
 
   AlertData({
     required this.type,
@@ -835,6 +1062,7 @@ class AlertData {
     required this.timestamp,
     this.lat,
     this.lng,
+    this.onNavigate,
   });
 }
 
@@ -845,6 +1073,7 @@ class NearbyPlace {
   final double? lng;
   final double? rating;
   final String? type;
+  final double? distance;
 
   NearbyPlace({
     required this.name,
@@ -853,7 +1082,28 @@ class NearbyPlace {
     this.lng,
     this.rating,
     this.type,
+    this.distance,
   });
+
+  NearbyPlace copyWith({
+    String? name,
+    String? address,
+    double? lat,
+    double? lng,
+    double? rating,
+    String? type,
+    double? distance,
+  }) {
+    return NearbyPlace(
+      name: name ?? this.name,
+      address: address ?? this.address,
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
+      rating: rating ?? this.rating,
+      type: type ?? this.type,
+      distance: distance ?? this.distance,
+    );
+  }
 
   factory NearbyPlace.fromJson(Map<String, dynamic> json) {
     final geometry = json['geometry'] as Map<String, dynamic>?;

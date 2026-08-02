@@ -1,14 +1,15 @@
 import 'package:flutter/material.dart';
 import '../../core/constants.dart';
-import '../../core/theme.dart';
 import '../../providers/navigation_provider.dart';
+import '../core/app_colors.dart';
+import '../core/theme.dart';
 
 /// Card to display nearby Point of Interest (POI)
 class PoiCard extends StatelessWidget {
   final NearbyPlace place;
   final VoidCallback onTap;
 
-  const PoiCard({
+  PoiCard({
     super.key,
     required this.place,
     required this.onTap,
@@ -16,6 +17,7 @@ class PoiCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     // Try to map Google/Ola type to our icons, fallback to location
     String iconKey = 'Food';
     if (place.type != null) {
@@ -38,7 +40,7 @@ class PoiCard extends StatelessWidget {
         width: 200,
         margin: const EdgeInsets.only(right: 16),
         padding: const EdgeInsets.all(16),
-        decoration: glassCardDecoration(opacity: 0.1),
+        decoration: themedGlassCard(colors, opacity: 0.1),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
@@ -48,29 +50,29 @@ class PoiCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppTheme.surfaceDark,
+                    color: colors.surfaceColor,
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text(emoji, style: const TextStyle(fontSize: 20)),
+                  child: Text(emoji, style: TextStyle(fontSize: 20)),
                 ),
-                const SizedBox(width: 12),
+                SizedBox(width: 12),
                 if (place.rating != null)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppTheme.accentOrange.withValues(alpha: 0.15),
+                      color: colors.accentWarning.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: Row(
                       children: [
-                        const Icon(Icons.star_rounded, color: AppTheme.accentOrange, size: 14),
-                        const SizedBox(width: 4),
+                        Icon(Icons.star_rounded, color: colors.accentWarning, size: 14),
+                        SizedBox(width: 4),
                         Text(
                           place.rating!.toString(),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w600,
-                            color: AppTheme.accentOrange,
+                            color: colors.accentWarning,
                           ),
                         ),
                       ],
@@ -78,24 +80,24 @@ class PoiCard extends StatelessWidget {
                   ),
               ],
             ),
-            const SizedBox(height: 12),
+            SizedBox(height: 12),
             Text(
               place.name,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.textPrimary,
+                color: colors.textPrimary,
               ),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
             if (place.address != null) ...[
-              const SizedBox(height: 4),
+              SizedBox(height: 4),
               Text(
                 place.address!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: AppTheme.textSecondary,
+                  color: colors.textSecondary,
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

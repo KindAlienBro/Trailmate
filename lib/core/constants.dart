@@ -1,4 +1,4 @@
-/// TrailMate App Constants
+/// RoUniity App Constants
 ///
 /// Centralized configuration for the entire app — API endpoints,
 /// alert thresholds, POI categories, and map settings.
@@ -7,16 +7,14 @@ import 'package:flutter/foundation.dart';
 
 class AppConstants {
   // ==================== Server ====================
-  // Debug mode: Uses localhost via `adb reverse` (works on ANY network).
-  //   → Run once per USB connection: adb reverse tcp:3000 tcp:3000
-  //   → This tunnels phone's localhost:3000 → PC's localhost:3000 via USB.
-  //   → Works on real devices AND emulators, no Wi-Fi IP needed.
+  // Debug mode: Uses local network IP for physical device testing.
+  // Make sure your PC is on 192.168.0.9 or update this IP.
   // Release mode: Uses Production VPS IP.
-  static const String _localServer = 'http://127.0.0.1:3000';
+  static const String _localServer = 'http://192.168.0.9:3000';
   static const String _prodServer = 'http://187.127.171.60:4000';
 
-  static const String serverBaseUrl = kReleaseMode ? _prodServer : _localServer;
-  static const String serverWsUrl = kReleaseMode ? _prodServer : _localServer;
+  static String get serverBaseUrl => kReleaseMode ? _prodServer : _localServer;
+  static String get serverWsUrl => kReleaseMode ? _prodServer : _localServer;
 
   // ==================== API Endpoints ====================
   static const String apiPrefix = '/api';
@@ -40,6 +38,7 @@ class AppConstants {
   static const String distanceMatrixEndpoint = '$apiPrefix/maps/distance-matrix';
   static const String snapToRoadEndpoint = '$apiPrefix/maps/snap-to-road';
   static const String apiUsageEndpoint = '$apiPrefix/maps/usage';
+  static const String suggestWaypointsEndpoint = '$apiPrefix/maps/suggest-waypoints';
   static const String smartRouteEndpoint = '$apiPrefix/maps/smart-route';
 
   // ==================== Map Tiles ====================

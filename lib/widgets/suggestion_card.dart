@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../core/theme.dart';
+import '../core/app_colors.dart';
 
 /// Data class for a waypoint suggestion from the smart engine.
 class WaypointSuggestion {
@@ -57,11 +57,11 @@ class WaypointSuggestion {
 
   Color get accentColor {
     switch (type) {
-      case 'fuel': return const Color(0xFFFFAB40);
-      case 'fatigue_break': return const Color(0xFF4FC3F7);
-      case 'ai_waypoint': return const Color(0xFFB388FF);
-      case 'stopped_suggestion': return const Color(0xFF00E676);
-      default: return AppTheme.accentBlue;
+      case 'fuel': return Color(0xFFFFAB40);
+      case 'fatigue_break': return Color(0xFF4FC3F7);
+      case 'ai_waypoint': return Color(0xFFB388FF);
+      case 'stopped_suggestion': return Color(0xFF00E676);
+      default: return Color(0xFF1976D2);
     }
   }
 }
@@ -73,7 +73,7 @@ class SuggestionCard extends StatefulWidget {
   final VoidCallback? onDismiss;
   final Duration autoDismissDuration;
 
-  const SuggestionCard({
+  SuggestionCard({
     super.key,
     required this.suggestion,
     this.onNavigate,
@@ -95,11 +95,11 @@ class _SuggestionCardState extends State<SuggestionCard>
   void initState() {
     super.initState();
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 500),
+      duration: Duration(milliseconds: 500),
       vsync: this,
     );
     _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 1),
+      begin: Offset(0, 1),
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _controller,
@@ -130,6 +130,8 @@ class _SuggestionCardState extends State<SuggestionCard>
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    
     final suggestion = widget.suggestion;
     return SlideTransition(
       position: _slideAnimation,
@@ -143,7 +145,7 @@ class _SuggestionCardState extends State<SuggestionCard>
             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppTheme.cardDark.withValues(alpha: 0.95),
+              color: colors.cardColor.withValues(alpha: 0.95),
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: suggestion.accentColor.withValues(alpha: 0.4),
@@ -153,12 +155,12 @@ class _SuggestionCardState extends State<SuggestionCard>
                 BoxShadow(
                   color: suggestion.accentColor.withValues(alpha: 0.15),
                   blurRadius: 20,
-                  offset: const Offset(0, -4),
+                  offset: Offset(0, -4),
                 ),
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  offset: Offset(0, 4),
                 ),
               ],
             ),
@@ -184,22 +186,22 @@ class _SuggestionCardState extends State<SuggestionCard>
                         size: 22,
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
                             suggestion.name,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w600,
-                              color: AppTheme.textPrimary,
+                              color: colors.textPrimary,
                             ),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
-                          const SizedBox(height: 2),
+                          SizedBox(height: 2),
                           Text(
                             suggestion.reason,
                             style: TextStyle(
@@ -217,21 +219,21 @@ class _SuggestionCardState extends State<SuggestionCard>
                       padding: const EdgeInsets.symmetric(
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: AppTheme.surfaceDark,
+                        color: colors.surfaceColor,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
                         suggestion.distanceText,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.textSecondary,
+                          color: colors.textSecondary,
                         ),
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 14),
+                SizedBox(height: 14),
                 // Action buttons
                 Row(
                   children: [
@@ -239,18 +241,18 @@ class _SuggestionCardState extends State<SuggestionCard>
                       child: OutlinedButton(
                         onPressed: _dismiss,
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AppTheme.textSecondary,
-                          side: const BorderSide(color: AppTheme.borderDark),
+                          foregroundColor: colors.textSecondary,
+                          side: BorderSide(color: colors.borderColor),
                           padding: const EdgeInsets.symmetric(vertical: 10),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
                           ),
                         ),
-                        child: const Text('Dismiss',
+                        child: Text('Dismiss',
                             style: TextStyle(fontSize: 13)),
                       ),
                     ),
-                    const SizedBox(width: 12),
+                    SizedBox(width: 12),
                     Expanded(
                       flex: 2,
                       child: Container(
@@ -267,15 +269,15 @@ class _SuggestionCardState extends State<SuggestionCard>
                               color:
                                   suggestion.accentColor.withValues(alpha: 0.3),
                               blurRadius: 8,
-                              offset: const Offset(0, 2),
+                              offset: Offset(0, 2),
                             ),
                           ],
                         ),
                         child: ElevatedButton.icon(
                           onPressed: widget.onNavigate,
-                          icon: const Icon(Icons.navigation_rounded,
+                          icon: Icon(Icons.navigation_rounded,
                               size: 18, color: Colors.white),
-                          label: const Text('Navigate Here',
+                          label: Text('Navigate Here',
                               style: TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,

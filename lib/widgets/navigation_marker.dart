@@ -2,11 +2,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import '../core/theme.dart';
+import '../core/app_colors.dart';
 
 class GoogleNavigationMarker extends StatefulWidget {
   final double heading;
 
-  const GoogleNavigationMarker({
+  GoogleNavigationMarker({
     super.key,
     required this.heading,
   });
@@ -23,7 +24,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
+      duration: Duration(seconds: 2),
     )..repeat(reverse: false);
   }
 
@@ -35,6 +36,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     // We fetch the current map rotation from the camera.
     // In flutter_map, if the map rotates counter-clockwise by X, camera.rotation is X.
     // The visual rotation on screen must combine map rotation and heading.
@@ -65,7 +67,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
                     height: 32,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppTheme.accentBlue.withValues(alpha: 0.4),
+                      color: colors.accentPrimary.withValues(alpha: 0.4),
                     ),
                   ),
                 ),
@@ -85,7 +87,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
                   color: Colors.black.withValues(alpha: 0.3),
                   blurRadius: 8,
                   spreadRadius: 1,
-                  offset: const Offset(0, 4), // Static shadow pointing DOWN on screen
+                  offset: Offset(0, 4), // Static shadow pointing DOWN on screen
                 ),
               ],
             ),
@@ -95,7 +97,7 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
           Transform.rotate(
             angle: angle,
             child: CustomPaint(
-              size: const Size(28, 28),
+              size: Size(28, 28),
               painter: _ChevronPainter(),
             ),
           ),
@@ -131,10 +133,10 @@ class _ChevronPainter extends CustomPainter {
 
     // 2. Fill with rich blue gradient
     final fillPaint = Paint()
-      ..shader = const LinearGradient(
-        colors: [AppTheme.accentBlue, Color(0xFF1976D2)], // Bright to deep blue
+      ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
+        colors: [Color(0xFF4FC3F7), Color(0xFF1976D2)], // Bright to deep blue
       ).createShader(Rect.fromLTWH(0, 0, w, h))
       ..style = PaintingStyle.fill;
     

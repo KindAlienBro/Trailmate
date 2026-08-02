@@ -96,6 +96,7 @@ class OlaMapsService {
     required double destLng,
     String mode = 'highway',
     String? transportMode,
+    List<Map<String, dynamic>>? waypoints,
   }) async {
     try {
       final body = <String, dynamic>{
@@ -106,6 +107,9 @@ class OlaMapsService {
 
       if (transportMode != null) {
         body['transportMode'] = transportMode;
+      }
+      if (waypoints != null) {
+        body['waypoints'] = waypoints;
       }
 
       final response = await http.post(
@@ -120,6 +124,41 @@ class OlaMapsService {
       throw Exception('Smart route API error: ${response.body}');
     } catch (e) {
       throw Exception('Failed to get smart route: $e');
+    }
+  }
+
+  /// Suggest waypoints for the given route without generating the final polyline.
+  Future<Map<String, dynamic>> suggestWaypoints({
+    required double originLat,
+    required double originLng,
+    required double destLat,
+    required double destLng,
+    String mode = 'highway',
+    String? transportMode,
+  }) async {
+    try {
+      final body = <String, dynamic>{
+        'origin': '$originLat,$originLng',
+        'destination': '$destLat,$destLng',
+        'mode': mode,
+      };
+
+      if (transportMode != null) {
+        body['transportMode'] = transportMode;
+      }
+
+      final response = await http.post(
+        Uri.parse('$_baseUrl${AppConstants.suggestWaypointsEndpoint}'),
+        headers: _headers,
+        body: jsonEncode(body),
+      );
+
+      if (response.statusCode == 200) {
+        return jsonDecode(response.body);
+      }
+      throw Exception('Suggest waypoints API error: ${response.body}');
+    } catch (e) {
+      throw Exception('Failed to suggest waypoints: $e');
     }
   }
 

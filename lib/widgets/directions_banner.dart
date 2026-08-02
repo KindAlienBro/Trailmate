@@ -1,5 +1,6 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../core/app_colors.dart';
 import '../providers/navigation_provider.dart';
 
 /// Determines the resolved maneuver direction from both the API maneuverType
@@ -47,11 +48,16 @@ class DirectionsBanner extends StatelessWidget {
   final RouteStep? upcomingStep;
   final double distanceToNextManeuver;
 
-  const DirectionsBanner({
+  final RouteStep? detourCurrentStep;
+  final double distanceToDetourManeuver;
+
+  DirectionsBanner({
     super.key,
     required this.currentStep,
     this.upcomingStep,
     this.distanceToNextManeuver = 0.0,
+    this.detourCurrentStep,
+    this.distanceToDetourManeuver = 0.0,
   });
 
   /// Resolve the maneuver direction from both the maneuverType string and
@@ -327,18 +333,41 @@ class DirectionsBanner extends StatelessWidget {
     return '${meters.toStringAsFixed(0)} m';
   }
 
+  /// Extract road name from instruction text (after "onto" keyword)
+  String? _extractRoadName(String instruction) {
+    final lower = instruction.toLowerCase();
+    final ontoIndex = lower.indexOf(' onto ');
+    if (ontoIndex != -1) {
+      return instruction.substring(ontoIndex + 6).trim();
+    }
+    // Try "on " pattern
+    final onIndex = lower.indexOf(' on ');
+    if (onIndex != -1 && onIndex > 5) {
+      return instruction.substring(onIndex + 4).trim();
+    }
+    return null;
+  }
+
+  /// Get short instruction (without road name)
+  String _getShortInstruction(String instruction) {
+    final lower = instruction.toLowerCase();
+    final ontoIndex = lower.indexOf(' onto ');
+    if (ontoIndex != -1) {
+      return instruction.substring(0, ontoIndex).trim();
+    }
+    return instruction;
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     if (currentStep == null) return const SizedBox.shrink();
 
     final displayDistance = distanceToNextManeuver > 0
         ? distanceToNextManeuver
         : currentStep!.distance;
 
-    // Google Maps-like behavior: show the UPCOMING maneuver (what happens at
-    // the end of the current segment), not what you're currently doing.
-    // If there's an upcoming step, show its icon/instruction with the distance
-    // to it. If we're on the last step (arriving), show the current step.
+    // Show the UPCOMING maneuver (what happens at the end of current segment)
     final RouteStep displayStep = upcomingStep ?? currentStep!;
     
     final direction = _resolveDirection(
@@ -346,97 +375,253 @@ class DirectionsBanner extends StatelessWidget {
       displayStep.instruction,
     );
     final info = _getManeuverInfo(direction);
+    final roadName = _extractRoadName(displayStep.instruction);
+    final shortInstruction = _getShortInstruction(displayStep.instruction);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-        child: Container(
-          width: double.infinity,
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.55),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: info.color.withValues(alpha: 0.35),
-              width: 1.5,
+    // Upcoming step info (for the "Then" column)
+    _ManeuverInfo? nextInfo;
+    double? nextDistance;
+    if (upcomingStep != null) {
+      // The "next" after upcoming is 2 steps ahead — but we only have upcomingStep
+      // Show the upcoming step's own info in the "Then" panel
+      final nextStep = upcomingStep!;
+      final nextDir = _resolveDirection(nextStep.maneuverType, nextStep.instruction);
+      nextInfo = _getManeuverInfo(nextDir);
+      nextDistance = nextStep.distance;
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(20),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+          child: Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A2030).withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.08),
+                width: 1,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-            boxShadow: [
-              BoxShadow(
-                color: info.glowColor.withValues(alpha: 0.15),
-                blurRadius: 24,
-                offset: const Offset(0, 8),
-              ),
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.3),
-                blurRadius: 20,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 16.0),
-            child: Row(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Direction Icon with colored gradient circle
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: info.gradientColors,
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: info.glowColor.withValues(alpha: 0.45),
-                        blurRadius: 14,
-                        spreadRadius: 2,
-                      ),
-                    ],
+                if (detourCurrentStep != null)
+                  _buildBannerRow(
+                    currentStep: detourCurrentStep!,
+                    upcomingStep: null,
+                    distance: distanceToDetourManeuver,
+                    isDetour: true,
+                  )
+                else
+                  _buildBannerRow(
+                    currentStep: currentStep!,
+                    upcomingStep: upcomingStep,
+                    distance: distanceToNextManeuver,
+                    isDetour: false,
                   ),
-                  child: Icon(
-                    info.icon,
-                    color: Colors.white,
-                    size: 32,
-                  ),
-                ),
-                const SizedBox(width: 20),
-
-                // Distance & Instruction
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        _formatDistance(displayDistance),
-                        style: const TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w900,
-                          color: Colors.white,
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        displayStep.instruction,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.white.withValues(alpha: 0.8),
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildBannerRow({
+    required RouteStep currentStep,
+    RouteStep? upcomingStep,
+    required double distance,
+    required bool isDetour,
+  }) {
+    final maneuverDir = _resolveDirection(currentStep.maneuverType, currentStep.instruction);
+    final info = _getManeuverInfo(maneuverDir);
+
+    final instructionParts = currentStep.instruction.split(' onto ');
+    String shortInstruction = instructionParts[0];
+    String? roadName;
+    if (instructionParts.length > 1) {
+      roadName = instructionParts.sublist(1).join(' onto ');
+    } else {
+      final towardsParts = currentStep.instruction.split(' towards ');
+      if (towardsParts.length > 1) {
+        shortInstruction = towardsParts[0];
+        roadName = towardsParts.sublist(1).join(' towards ');
+      }
+    }
+
+    _ManeuverInfo? nextInfo;
+    double? nextDistance;
+
+    if (upcomingStep != null) {
+      final nextDir = _resolveDirection(upcomingStep.maneuverType, upcomingStep.instruction);
+      nextInfo = _getManeuverInfo(nextDir);
+      nextDistance = upcomingStep.distance;
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+      child: Row(
+        children: [
+          // ── LEFT: Direction Icon Circle ──
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: isDetour
+                    ? [const Color(0xFFFFD600), const Color(0xFFFFA000)]
+                    : info.gradientColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: isDetour
+                      ? const Color(0xFFFFA000).withValues(alpha: 0.5)
+                      : info.glowColor.withValues(alpha: 0.5),
+                  blurRadius: 16,
+                  spreadRadius: 2,
+                ),
+              ],
+            ),
+            child: Icon(
+              info.icon,
+              color: isDetour ? Colors.black87 : Colors.white,
+              size: 30,
+            ),
+          ),
+          const SizedBox(width: 16),
+
+          // ── CENTER: Distance + Instruction + Road Name ──
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (isDetour)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 2),
+                    child: Text(
+                      'Detour',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFFFFD600),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ),
+                // Distance
+                Text(
+                  _formatDistance(distance),
+                  style: const TextStyle(
+                    fontSize: 30,
+                    fontWeight: FontWeight.w900,
+                    color: Colors.white,
+                    letterSpacing: -0.5,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                // Short instruction
+                Text(
+                  shortInstruction,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white.withValues(alpha: 0.85),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                // Road name with pin icon
+                if (roadName != null) ...[
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.location_on,
+                        size: 12,
+                        color: Colors.white.withValues(alpha: 0.5),
+                      ),
+                      const SizedBox(width: 4),
+                      Expanded(
+                        child: Text(
+                          roadName,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white.withValues(alpha: 0.5),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+
+          // ── RIGHT: "Then" Preview ──
+          if (nextInfo != null && nextDistance != null) ...[
+            Container(
+              width: 1,
+              height: 50,
+              margin: const EdgeInsets.symmetric(horizontal: 12),
+              color: Colors.white.withValues(alpha: 0.1),
+            ),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Then',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.white.withValues(alpha: 0.5),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    nextInfo.icon,
+                    color: Colors.white.withValues(alpha: 0.8),
+                    size: 18,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatDistance(nextDistance),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white.withValues(alpha: 0.7),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }

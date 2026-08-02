@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../core/theme.dart';
+import '../core/app_colors.dart';
 
 /// A custom map marker for group members.
 class MemberMarker extends StatelessWidget {
@@ -8,7 +8,7 @@ class MemberMarker extends StatelessWidget {
   final bool isMe;
   final String status;
 
-  const MemberMarker({
+  MemberMarker({
     super.key,
     required this.name,
     this.isLeader = false,
@@ -31,19 +31,20 @@ class MemberMarker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
     // Determine border color based on status and identity
     Color borderColor = _getColorFromName(name);
     
     if (status == 'deviated' || status == 'separated') {
-      borderColor = AppTheme.accentOrange;
+      borderColor = colors.accentWarning;
     } else if (status == 'sos') {
-      borderColor = AppTheme.accentRed;
+      borderColor = colors.accentDanger;
     } else if (isMe) {
-      borderColor = AppTheme.accentGreen;
+      borderColor = colors.accentSecondary;
     } else if (isLeader) {
       // Keep leader distinct or let them have a unique color too?
       // Let's use the hash color for everyone, but if they want leader to be purple:
-      // borderColor = AppTheme.accentPurple;
+      // borderColor = colors.accentExtra;
     }
 
     return Column(
@@ -53,7 +54,7 @@ class MemberMarker extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
           decoration: BoxDecoration(
-            color: AppTheme.surfaceDark.withValues(alpha: 0.9),
+            color: colors.surfaceColor.withValues(alpha: 0.9),
             borderRadius: BorderRadius.circular(4),
             border: Border.all(color: borderColor, width: 1),
           ),
@@ -62,24 +63,24 @@ class MemberMarker extends StatelessWidget {
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w600,
-              color: AppTheme.textPrimary,
+              color: colors.textPrimary,
             ),
           ),
         ),
-        const SizedBox(height: 2),
+        SizedBox(height: 2),
         // Avatar circle
         Container(
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color: AppTheme.cardDark,
+            color: colors.cardColor,
             shape: BoxShape.circle,
             border: Border.all(color: borderColor, width: 2.5),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withValues(alpha: 0.3),
                 blurRadius: 6,
-                offset: const Offset(0, 3),
+                offset: Offset(0, 3),
               ),
             ],
           ),
@@ -89,7 +90,7 @@ class MemberMarker extends StatelessWidget {
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.textPrimary,
+                color: colors.textPrimary,
               ),
             ),
           ),

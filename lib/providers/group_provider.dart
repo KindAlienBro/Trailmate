@@ -252,6 +252,7 @@ class AIWaypoint {
   final String name;
   final String reason;
   final String type; // scenic, curvy_road, mountain_pass, waterfall, jungle, water_crossing, viewpoint, heritage
+  final String? photoUrl;
 
   AIWaypoint({
     required this.lat,
@@ -259,6 +260,7 @@ class AIWaypoint {
     required this.name,
     this.reason = '',
     this.type = 'scenic',
+    this.photoUrl,
   });
 
   factory AIWaypoint.fromJson(Map<String, dynamic> json) {
@@ -268,8 +270,18 @@ class AIWaypoint {
       name: json['name'] ?? '',
       reason: json['reason'] ?? '',
       type: json['type'] ?? 'scenic',
+      photoUrl: json['photoUrl'],
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'lat': lat,
+    'lng': lng,
+    'name': name,
+    'reason': reason,
+    'type': type,
+    if (photoUrl != null) 'photoUrl': photoUrl,
+  };
 
   String get emoji {
     switch (type) {
@@ -377,9 +389,7 @@ class GroupProvider extends ChangeNotifier {
       if (distanceMeters != null) body['distanceMeters'] = distanceMeters;
       if (durationSeconds != null) body['durationSeconds'] = durationSeconds;
       if (aiWaypoints != null && aiWaypoints.isNotEmpty) {
-        body['aiWaypoints'] = aiWaypoints.map((w) => {
-          'lat': w.lat, 'lng': w.lng, 'name': w.name, 'reason': w.reason, 'type': w.type,
-        }).toList();
+        body['aiWaypoints'] = aiWaypoints.map((w) => w.toJson()).toList();
       }
       if (routeCharacter != null) body['routeCharacter'] = routeCharacter;
 

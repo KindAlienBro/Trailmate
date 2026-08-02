@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 /**
  * JWT Authentication Middleware — Single-Login Architecture
  *
- * TrailMate AI uses a single login: the FastAPI backend issues the JWT,
+ * RoUniity uses a single login: the FastAPI backend issues the JWT,
  * and this Node.js group server validates the SAME token using the
  * shared JWT_SECRET. No MongoDB User lookup is needed for authentication.
  *
@@ -22,13 +22,16 @@ const authenticate = async (req, res, next) => {
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    // Use payload directly — no MongoDB user lookup
-    req.user = {
-      id: decoded.userId || decoded.sub,
-      name: decoded.name || decoded.username || 'Unknown',
-      email: decoded.email || '',
-    };
-    req.userId = req.user.id;
+    // Fetch user from MongoDB to ensure name and avatar are correct
+    const User = require('../models/User');
+    const user = await User.findById(decoded.userId || decoded.sub);
+    
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    req.user = user;
+    req.userId = user._id;
 
     next();
   } catch (error) {
@@ -52,12 +55,15 @@ const authenticateSocket = async (socket, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-    socket.user = {
-      id: decoded.userId || decoded.sub,
-      name: decoded.name || decoded.username || 'Unknown',
-      email: decoded.email || '',
-    };
-    socket.userId = socket.user.id;
+    const User = require('../models/User');
+    const user = await User.findById(decoded.userId || decoded.sub);
+    
+    if (!user) {
+      return next(new Error('User not found'));
+    }
+
+    socket.user = user;
+    socket.userId = user._id;
 
     next();
   } catch (error) {

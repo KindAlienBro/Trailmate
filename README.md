@@ -1,6 +1,6 @@
-# trialmate
+# RoUniity
 
-A new Flutter project.
+RoUniity - Explore Together. A Flutter group navigation app.
 
 ## Getting Started
 

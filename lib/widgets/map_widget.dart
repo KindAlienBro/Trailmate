@@ -8,6 +8,8 @@ import '../providers/group_provider.dart';
 import '../services/ola_tile_proxy.dart';
 import 'member_marker.dart';
 import 'navigation_marker.dart';
+import '../core/app_colors.dart';
+import 'suggestion_card.dart';
 
 /// Reusable Map Widget wrapping flutter_map.
 ///
@@ -26,8 +28,15 @@ class TrailMapWidget extends StatefulWidget {
   final double deviceHeading;
   final List<AIWaypoint> aiWaypoints;
   final Function(AIWaypoint)? onWaypointTap;
+  final List<LatLng> detourPolyline;
+  final bool isDarkMode;
+  final WaypointSuggestion? activeSuggestion;
+  final VoidCallback? onSuggestionDismiss;
+  final VoidCallback? onSuggestionNavigate;
+  final List<LatLng> sosPolyline;
+  final List<NearbyPlace> nearbyPlaces;
 
-  const TrailMapWidget({
+  TrailMapWidget({
     super.key,
     required this.mapController,
     this.initialCenter = const LatLng(0, 0),
@@ -41,6 +50,13 @@ class TrailMapWidget extends StatefulWidget {
     this.deviceHeading = 0.0,
     this.aiWaypoints = const [],
     this.onWaypointTap,
+    this.detourPolyline = const [],
+    this.isDarkMode = false,
+    this.activeSuggestion,
+    this.onSuggestionDismiss,
+    this.onSuggestionNavigate,
+    this.sosPolyline = const [],
+    this.nearbyPlaces = const [],
   });
 
   @override
@@ -81,7 +97,7 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     _positionAnimControllers[userId]?.dispose();
 
     final controller = AnimationController(
-      duration: const Duration(milliseconds: 800),
+      duration: Duration(milliseconds: 800),
       vsync: this,
     );
 
@@ -116,8 +132,32 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     super.dispose();
   }
 
+  /// Dark mode color matrix — inverts and hue-rotates OSM tiles
+  static const ColorFilter _darkModeFilter = ColorFilter.matrix(<double>[
+    -0.8, 0, 0, 0, 230,  // Red
+    0, -0.8, 0, 0, 230,  // Green
+    0, 0, -0.6, 0, 230,  // Blue (slightly less inversion for better contrast)
+    0, 0, 0, 1, 0,       // Alpha
+  ]);
+
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+
+    // Build the tile layer
+    Widget tileLayer = TileLayer(
+      urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      userAgentPackageName: 'com.example.trialmate',
+    );
+
+    // Wrap in color filter for dark mode
+    if (widget.isDarkMode) {
+      tileLayer = ColorFiltered(
+        colorFilter: _darkModeFilter,
+        child: tileLayer,
+      );
+    }
+
     return FlutterMap(
       mapController: widget.mapController,
       options: MapOptions(
@@ -125,27 +165,52 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
         initialZoom: widget.initialZoom,
         maxZoom: 18.0,
         minZoom: 3.0,
-        interactionOptions: const InteractionOptions(
+        interactionOptions: InteractionOptions(
           flags: InteractiveFlag.all,
         ),
       ),
       children: [
-        // Raster Map Tiles Layer (Colorful with labels)
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.trialmate',
-        ),
+        // Raster Map Tiles Layer (with optional dark mode filter)
+        tileLayer,
 
         // Route Polyline
             if (widget.routePolyline.isNotEmpty)
               PolylineLayer(
-                polylines: [
+                polylines: <Polyline<Object>>[
                   Polyline(
                     points: widget.routePolyline,
-                    color: AppTheme.accentBlue.withValues(alpha: 0.8),
+                    color: colors.accentPrimary.withValues(alpha: 0.8),
                     strokeWidth: 6.0,
                     borderStrokeWidth: 2.0,
-                    borderColor: AppTheme.primaryDark,
+                    borderColor: colors.primaryBackground,
+                  ),
+                ],
+              ),
+
+            // Detour Polyline (yellow)
+            if (widget.detourPolyline.isNotEmpty)
+              PolylineLayer(
+                polylines: <Polyline<Object>>[
+                  Polyline(
+                    points: widget.detourPolyline,
+                    color: const Color(0xFFFFD600),
+                    strokeWidth: 5.0,
+                    borderStrokeWidth: 1.5,
+                    borderColor: const Color(0xFFFFA000),
+                  ),
+                ],
+              ),
+              
+            // SOS Polyline (red)
+            if (widget.sosPolyline.isNotEmpty)
+              PolylineLayer(
+                polylines: <Polyline<Object>>[
+                  Polyline(
+                    points: widget.sosPolyline,
+                    color: const Color(0xFFFF1744),
+                    strokeWidth: 6.0,
+                    borderStrokeWidth: 2.0,
+                    borderColor: const Color(0xFFD50000),
                   ),
                 ],
               ),
@@ -158,13 +223,13 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                     point: widget.routePolyline.first,
                     width: 40,
                     height: 40,
-                    child: const Icon(Icons.location_on, color: AppTheme.accentGreen, size: 40),
+                    child: Icon(Icons.location_on, color: colors.accentSecondary, size: 40),
                   ),
                   Marker(
                     point: widget.routePolyline.last,
                     width: 40,
                     height: 40,
-                    child: const Icon(Icons.flag_rounded, color: AppTheme.accentRed, size: 40),
+                    child: Icon(Icons.flag_rounded, color: colors.accentDanger, size: 40),
                   ),
                 ],
                 ...widget.aiWaypoints.map((wp) => Marker(
@@ -176,16 +241,24 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                     onTap: () => widget.onWaypointTap?.call(wp),
                     child: Container(
                       decoration: BoxDecoration(
-                        color: AppTheme.cardDark.withValues(alpha: 0.9),
+                        color: colors.cardColor.withValues(alpha: 0.9),
                         shape: BoxShape.circle,
-                        border: Border.all(color: AppTheme.accentPurple, width: 2),
+                        border: Border.all(color: colors.accentExtra, width: 2),
                       ),
                       child: Center(
-                        child: Text(wp.emoji, style: const TextStyle(fontSize: 18)),
+                        child: Text(wp.emoji, style: TextStyle(fontSize: 18)),
                       ),
                     ),
                   ),
                 )),
+                ...widget.nearbyPlaces.where((p) => p.lat != null && p.lng != null).map((p) => Marker(
+                  point: LatLng(p.lat!, p.lng!),
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.topCenter,
+                  child: Icon(Icons.location_on, color: const Color(0xFFFFD600), size: 32),
+                )),
+
                 ...widget.memberPositions.values.map((pos) {
                   final isMe = pos.userId == widget.currentUserId;
                   final isLeader = pos.userId == widget.leaderId;
@@ -218,9 +291,135 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                     ),
                   );
                 }),
+                // Smart Suggestion Map Bubble
+                if (widget.activeSuggestion != null)
+                  Marker(
+                    point: LatLng(widget.activeSuggestion!.lat, widget.activeSuggestion!.lng),
+                    width: 200,
+                    height: 120,
+                    alignment: Alignment.topCenter,
+                    child: _SuggestionBubble(
+                      suggestion: widget.activeSuggestion!,
+                      onDismiss: widget.onSuggestionDismiss,
+                      onNavigate: widget.onSuggestionNavigate,
+                    ),
+                  ),
               ],
             ),
-          ],
+      ],
+    );
+  }
+}
+
+class _SuggestionBubble extends StatelessWidget {
+  final WaypointSuggestion suggestion;
+  final VoidCallback? onDismiss;
+  final VoidCallback? onNavigate;
+
+  const _SuggestionBubble({
+    required this.suggestion,
+    this.onDismiss,
+    this.onNavigate,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: colors.cardColor.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: suggestion.accentColor, width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: suggestion.accentColor.withValues(alpha: 0.3),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(8.0),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: suggestion.accentColor.withValues(alpha: 0.2),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(suggestion.iconData, color: suggestion.accentColor, size: 16),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        suggestion.name,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        suggestion.reason,
+                        style: TextStyle(
+                          color: colors.textSecondary,
+                          fontSize: 10,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(height: 1, color: colors.borderColor),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: onDismiss,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Center(
+                      child: Text(
+                        'Dismiss',
+                        style: TextStyle(color: colors.textSecondary, fontSize: 11, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Container(width: 1, height: 24, color: colors.borderColor),
+              Expanded(
+                child: InkWell(
+                  onTap: onNavigate,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    child: Center(
+                      child: Text(
+                        'Navigate',
+                        style: TextStyle(color: suggestion.accentColor, fontSize: 11, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }

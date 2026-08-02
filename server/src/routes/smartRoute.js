@@ -1,11 +1,25 @@
 const express = require('express');
 const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+const Database = require('better-sqlite3');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(authenticate);
 
 const OLA_BASE_URL = 'https://api.olamaps.io';
+
+const dbPath = path.join(__dirname, '..', '..', '..', 'india-pois.sqlite');
+let localDb = null;
+try {
+  if (fs.existsSync(dbPath)) {
+    localDb = new Database(dbPath, { readonly: true });
+    console.log(`[SmartRoute] Successfully connected to local POI database at ${dbPath}`);
+  }
+} catch (e) {
+  console.log(`[SmartRoute] Local POI database not found or failed to open: ${e.message}`);
+}
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -93,7 +107,7 @@ async function fetchOlaNearbyPlaces(sampledPoints, mode) {
           const url = `${OLA_BASE_URL}/places/v1/nearbysearch?layers=venue&types=${type.trim()}&location=${pt.lat},${pt.lng}&radius=15000&limit=10&api_key=${apiKey}`;
           const res = await axios.get(url, {
             timeout: 10000,
-            headers: { 'X-Request-Id': `trailmate-poi-${Date.now()}` }
+            headers: { 'X-Request-Id': `rouniity-poi-${Date.now()}` }
           });
           return res.data?.predictions || [];
         } catch {
@@ -143,7 +157,7 @@ async function fetchOlaNearbyPlaces(sampledPoints, mode) {
           const detailUrl = `${OLA_BASE_URL}/places/v1/details?place_id=${p.place_id}&api_key=${apiKey}`;
           const detailRes = await axios.get(detailUrl, {
             timeout: 5000,
-            headers: { 'X-Request-Id': `trailmate-detail-${Date.now()}` }
+            headers: { 'X-Request-Id': `rouniity-detail-${Date.now()}` }
           });
           const geom = detailRes.data?.result?.geometry?.location;
           if (geom) {
@@ -237,18 +251,18 @@ async function fetchWikipediaPlaces(sampledPoints) {
   try {
     const promises = sampledPoints.map(async (pt) => {
       try {
-        // 10km radius around each sampled point, max 10 results per point
-        const url = `https://en.wikipedia.org/w/api.php?action=query&list=geosearch&gscoord=${pt.lat}|${pt.lng}&gsradius=10000&gslimit=10&format=json`;
+        // 10km radius around each sampled point, max 10 results per point. Fetch images & extracts too!
+        const url = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggscoord=${pt.lat}|${pt.lng}&ggsradius=10000&ggslimit=10&prop=pageimages|extracts|coordinates&piprop=thumbnail&pithumbsize=500&exchars=200&explaintext=1&format=json`;
         const res = await axios.get(url, {
           timeout: 8000,
           headers: {
-            'User-Agent': 'TrailMateApp/1.0 (https://github.com/trailmate; trailmate@example.com)',
-            'Api-User-Agent': 'TrailMateApp/1.0'
+            'User-Agent': 'RoUniityApp/1.0 (https://github.com/rouniity; rouniity@example.com)',
+            'Api-User-Agent': 'RoUniityApp/1.0'
           }
         });
-        if (res?.data?.query?.geosearch) {
+        if (res?.data?.query?.pages) {
           successCount++;
-          return res.data.query.geosearch;
+          return Object.values(res.data.query.pages);
         }
         return [];
       } catch (err) {
@@ -262,11 +276,13 @@ async function fetchWikipediaPlaces(sampledPoints) {
 
     for (const items of results) {
       for (const item of items) {
+        if (!item.coordinates || !item.coordinates[0]) continue;
         places.push({
-          lat: item.lat,
-          lng: item.lon,
+          lat: item.coordinates[0].lat,
+          lng: item.coordinates[0].lon,
           name: item.title,
-          reason: 'A notable Wikipedia landmark.',
+          reason: item.extract || 'A notable Wikipedia landmark.',
+          photoUrl: item.thumbnail?.source || null,
           type: 'heritage',
           notability: 10, // High notability since it has a Wiki page
           source: 'wikipedia'
@@ -502,7 +518,7 @@ async function queryOverpass(query, timeoutMs = 25000) {
           headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
             Accept: 'application/json',
-            'User-Agent': 'TrailMateApp/1.0',
+            'User-Agent': 'RoUniityApp/1.0',
           },
           timeout: timeoutMs,
         }
@@ -569,12 +585,43 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
     }
   };
 
-  // Fire all sources in parallel — Ola Maps + Wikipedia are the reliable ones
-  const [olaPlaces, wikiPlaces, otmPlaces, osmData] = await Promise.all([
+  // Local DB fetch (Replaces Overpass if available!)
+  const fetchLocalDbPlaces = async () => {
+    if (!localDb) return [];
+    const places = [];
+    try {
+      const stmt = localDb.prepare(`
+        SELECT p.name, p.type, p.reason, p.lat, p.lng, p.notability
+        FROM poi_index idx
+        JOIN pois p ON p.id = idx.id
+        WHERE idx.minX >= ? AND idx.maxX <= ?
+          AND idx.minY >= ? AND idx.maxY <= ?
+      `);
+
+      for (const pt of sampledPoints) {
+        // roughly 15km bounding box (0.15 degrees)
+        const offset = 0.15;
+        const rows = stmt.all(pt.lng - offset, pt.lng + offset, pt.lat - offset, pt.lat + offset);
+        for (const row of rows) {
+          places.push({
+            ...row,
+            source: 'local_db'
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[SmartRoute] Local DB fetch failed:', e);
+    }
+    return places;
+  };
+
+  // Fire all sources in parallel
+  const [olaPlaces, wikiPlaces, otmPlaces, localPlaces, osmData] = await Promise.all([
     fetchOlaNearbyPlaces(sampledPoints, mode),
     fetchWikipediaPlaces(sampledPoints),
     fetchOpenTripMapPlaces(originLat, originLng, destLat, destLng, mode),
-    overpassFetch()
+    localDb ? fetchLocalDbPlaces() : Promise.resolve([]),
+    localDb ? Promise.resolve({ elements: [] }) : overpassFetch()
   ]);
 
   const elements = osmData?.elements || [];
@@ -585,10 +632,10 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
     return sampledPoints.some(pt => haversineKm(wp.lat, wp.lng, pt.lat, pt.lng) <= 15);
   });
 
-  console.log(`[SmartRoute] Sources: Ola=${olaPlaces.length}, Wiki=${wikiPlaces.length}, OTM=${otmPlaces.length}, OSM=${parsedOsm.length}`);
+  console.log(`[SmartRoute] Sources: Ola=${olaPlaces.length}, Wiki=${wikiPlaces.length}, OTM=${otmPlaces.length}, LocalDB=${localPlaces.length}, OSM=${parsedOsm.length}`);
 
-  // Ola Maps places are highest priority, then Wikipedia, then others
-  let allPlaces = [...olaPlaces, ...wikiPlaces, ...otmPlaces, ...parsedOsm];
+  // Combine all sources
+  let allPlaces = [...olaPlaces, ...wikiPlaces, ...otmPlaces, ...localPlaces, ...parsedOsm];
 
   if (allPlaces.length === 0) {
     return { waypoints: [], routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
@@ -598,15 +645,18 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
   for (const place of allPlaces) {
     const nameLower = (place.name || '').toLowerCase();
     
-    // Filter out non-tourist Wikipedia entries (administrative entities)
-    if (place.source === 'wikipedia') {
-      const junkPatterns = ['constituency', 'district', 'taluk', 'block', 'mandal', 
-        'tehsil', 'panchayat', 'municipality', 'corporation', 'lok sabha', 
-        'vidhan sabha', 'assembly', 'railway station', 'bus stand', 'junction'];
-      if (junkPatterns.some(p => nameLower.includes(p))) {
-        place.notability = -1; // Will be filtered out
-        continue;
-      }
+    // Filter out non-tourist entries and educational institutions from ALL sources
+    const junkPatterns = [
+      'constituency', 'district', 'taluk', 'block', 'mandal', 
+      'tehsil', 'panchayat', 'municipality', 'corporation', 'lok sabha', 
+      'vidhan sabha', 'assembly', 'railway station', 'bus stand', 'junction',
+      'school', 'college', 'university', 'institute', 'academy', 'vidyalaya',
+      'mahavidyalaya', 'polytechnic', 'pu college', 'degree college'
+    ];
+    
+    if (junkPatterns.some(p => nameLower.includes(p))) {
+      place.notability = -1; // Will be filtered out
+      continue;
     }
     
     // Boost landmark keywords - these are what tourists actually want to visit
@@ -670,14 +720,86 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
       lng: wp.lng,
       name: wp.name || 'Scenic Spot',
       reason: wp.reason,
+      photoUrl: wp.photoUrl || null,
       type: wp.type,
     });
 
     if (waypoints.length >= 25) break;
   }
 
+  // Sort waypoints by their projected distance along the line from origin to destination
+  if (waypoints.length > 0) {
+    // Vector AB (Origin to Destination)
+    const vecAB = {
+      lat: destLat - originLat,
+      lng: destLng - originLng,
+    };
+    
+    // Dot product of AB with itself (squared length of AB)
+    const lenSqAB = (vecAB.lat * vecAB.lat) + (vecAB.lng * vecAB.lng);
+    
+    // Calculate projection scalar for each waypoint
+    waypoints.forEach(wp => {
+      // Vector AP (Origin to Waypoint)
+      const vecAP = {
+        lat: wp.lat - originLat,
+        lng: wp.lng - originLng,
+      };
+      
+      // Dot product AP dot AB
+      const dotProduct = (vecAP.lat * vecAB.lat) + (vecAP.lng * vecAB.lng);
+      
+      // The fractional distance along the route
+      wp.projectionProgress = lenSqAB === 0 ? 0 : dotProduct / lenSqAB;
+    });
+
+    // Sort by projection progress (closest to origin first, closest to destination last)
+    waypoints.sort((a, b) => a.projectionProgress - b.projectionProgress);
+    
+    // Clean up the temporary property
+    waypoints.forEach(wp => delete wp.projectionProgress);
+
+    return { waypoints, routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
+  }
+
   return { waypoints, routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
 }
+
+router.post('/suggest-waypoints', async (req, res) => {
+  try {
+    const { origin, destination, mode = 'highway', transportMode } = req.body;
+    if (!origin || !destination) {
+      return res.status(400).json({ error: 'Origin and destination are required' });
+    }
+
+    const [originLat, originLng] = origin.split(',').map(Number);
+    const [destLat, destLng] = destination.split(',').map(Number);
+
+    if (mode === 'highway') {
+      return res.json({ aiWaypoints: [], routeCharacter: 'Direct highway route — fastest path to your destination.' });
+    }
+
+    const params = { origin, destination, api_key: getOlaApiKey(), steps: true };
+    if (transportMode) params.mode = transportMode;
+
+    const initialRouteResponse = await axios.post(`${OLA_BASE_URL}/routing/v1/directions`, null, {
+      params,
+      headers: { 'X-Request-Id': `rouniity-base-${Date.now()}` },
+      timeout: 15000,
+    });
+
+    const steps = initialRouteResponse.data.routes?.[0]?.legs?.[0]?.steps || [];
+    const aiResult = await generateAdventureWaypoints(originLat, originLng, destLat, destLng, mode, steps);
+
+    return res.json({
+      aiWaypoints: aiResult.waypoints,
+      routeCharacter: aiResult.routeCharacter,
+    });
+  } catch (error) {
+    console.error('[SuggestWaypoints] Error:', error.message);
+    res.status(500).json({ error: 'Failed to suggest waypoints' });
+  }
+});
 
 router.post('/smart-route', async (req, res) => {
   try {
@@ -695,7 +817,7 @@ router.post('/smart-route', async (req, res) => {
     // STEP 1: Fetch baseline route from Ola Maps to get the exact road polyline
     const initialRouteResponse = await axios.post(`${OLA_BASE_URL}/routing/v1/directions`, null, {
       params,
-      headers: { 'X-Request-Id': `trailmate-base-${Date.now()}` },
+      headers: { 'X-Request-Id': `rouniity-base-${Date.now()}` },
       timeout: 15000,
     });
 
@@ -708,30 +830,42 @@ router.post('/smart-route', async (req, res) => {
       });
     }
 
-    console.log(`[SmartRoute] Fetching AI waypoints along corridor for ${mode}: ${origin} → ${destination}`);
+    let finalWaypoints = req.body.waypoints || [];
+    let finalRouteCharacter = ROUTE_CHARACTERS[mode] || 'A scenic route.';
 
-    const steps = initialRouteResponse.data.routes?.[0]?.legs?.[0]?.steps || [];
-    const aiResult = await generateAdventureWaypoints(originLat, originLng, destLat, destLng, mode, steps);
-
-    console.log(`[SmartRoute] Found ${aiResult.waypoints.length} waypoints for ${mode}`);
+    // If client didn't provide waypoints, fallback to generating them (old flow)
+    if (!req.body.waypoints || !Array.isArray(req.body.waypoints)) {
+      console.log(`[SmartRoute] Fetching AI waypoints along corridor for ${mode}: ${origin} → ${destination}`);
+      const steps = initialRouteResponse.data.routes?.[0]?.legs?.[0]?.steps || [];
+      const aiResult = await generateAdventureWaypoints(originLat, originLng, destLat, destLng, mode, steps);
+      finalWaypoints = aiResult.waypoints;
+      finalRouteCharacter = aiResult.routeCharacter;
+      
+      // Limit to 20 waypoints to respect Ola Maps API limits (max 25)
+      if (finalWaypoints.length > 20) {
+        finalWaypoints = finalWaypoints.slice(0, 20);
+      }
+      
+      console.log(`[SmartRoute] Generated ${finalWaypoints.length} waypoints for ${mode}`);
+    }
 
     // STEP 2: Make final call to Ola Maps with the generated waypoints
-    const waypointsStr = aiResult.waypoints.map((wp) => `${wp.lat},${wp.lng}`).join('|');
+    const waypointsStr = finalWaypoints.map((wp) => `${wp.lat},${wp.lng}`).join('|');
     
     let url = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true`;
     if (transportMode) url += `&mode=${transportMode}`;
     if (waypointsStr) url += `&waypoints=${waypointsStr}`;
 
     const finalResponse = await axios.post(url, null, {
-      headers: { 'X-Request-Id': `trailmate-final-${Date.now()}` },
+      headers: { 'X-Request-Id': `rouniity-final-${Date.now()}` },
       timeout: 15000,
     });
 
     return res.json({
       ...finalResponse.data,
-      aiWaypoints: aiResult.waypoints,
+      aiWaypoints: finalWaypoints,
       mode,
-      routeCharacter: aiResult.routeCharacter,
+      routeCharacter: finalRouteCharacter,
     });
   } catch (error) {
     console.error('[SmartRoute] Error:', error.response?.data?.error || error.message);

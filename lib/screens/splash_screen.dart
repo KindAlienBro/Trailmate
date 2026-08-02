@@ -1,10 +1,10 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../core/theme.dart';
 import '../providers/auth_provider.dart';
+import '../core/app_colors.dart';
 
-/// Animated splash screen with TrailMate branding.
-/// Auto-navigates to login or home based on auth state.
+/// Redesigned Splash Screen with Fluid Choreography
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -12,50 +12,88 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen>
-    with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMixin {
   late AnimationController _controller;
-  late Animation<double> _fadeAnimation;
-  late Animation<double> _scaleAnimation;
-  late Animation<Offset> _slideAnimation;
+  late AnimationController _pulseController;
+  
+  late Animation<double> _logoScale;
+  late Animation<double> _logoOpacity;
+  late Animation<Offset> _logoSlide;
+  
+  late Animation<double> _textOpacity;
+  late Animation<Offset> _textSlide;
+  late Animation<double> _blurAnimation;
+  
+  bool _isNavigating = false;
 
   @override
   void initState() {
     super.initState();
+    
+    // Main choreography controller
     _controller = AnimationController(
-      duration: const Duration(milliseconds: 1800),
+      duration: const Duration(milliseconds: 2400),
       vsync: this,
     );
 
-    _fadeAnimation = Tween<double>(begin: 0.0, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.5, curve: Curves.easeOut)),
-    );
+    // Subtle breathing pulse for the glow
+    _pulseController = AnimationController(
+      duration: const Duration(milliseconds: 2000),
+      vsync: this,
+    )..repeat(reverse: true);
 
-    _scaleAnimation = Tween<double>(begin: 0.5, end: 1.0).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.6, curve: Curves.elasticOut)),
-    );
-
-    _slideAnimation = Tween<Offset>(
-      begin: const Offset(0, 0.3),
-      end: Offset.zero,
-    ).animate(
-      CurvedAnimation(parent: _controller, curve: const Interval(0.3, 0.7, curve: Curves.easeOut)),
-    );
-
+    _setupAnimations();
     _controller.forward();
     _initializeApp();
   }
 
+  void _setupAnimations() {
+    // Logo drops in from above, scales down and snaps into place
+    _logoSlide = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: const Offset(0, -0.5), end: const Offset(0, 0.1)).chain(CurveTween(curve: Curves.easeOutBack)), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: const Offset(0, 0.1), end: const Offset(0, 0)).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
+    ]).animate(_controller);
+
+    _logoScale = TweenSequence([
+      TweenSequenceItem(tween: Tween(begin: 0.5, end: 1.1).chain(CurveTween(curve: Curves.easeOutCubic)), weight: 40),
+      TweenSequenceItem(tween: Tween(begin: 1.1, end: 1.0).chain(CurveTween(curve: Curves.easeInOut)), weight: 60),
+    ]).animate(_controller);
+
+    _logoOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.4, curve: Curves.easeIn)),
+    );
+
+    // Text slides up and fades in after logo
+    _textSlide = Tween<Offset>(begin: const Offset(0, 0.3), end: Offset.zero).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.4, 0.8, curve: Curves.easeOutCubic)),
+    );
+
+    _textOpacity = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.5, 0.9, curve: Curves.easeIn)),
+    );
+
+    // Background blur resolves over time for a cinematic reveal
+    _blurAnimation = Tween<double>(begin: 20.0, end: 0.0).animate(
+      CurvedAnimation(parent: _controller, curve: const Interval(0.0, 0.8, curve: Curves.easeOut)),
+    );
+  }
+
   Future<void> _initializeApp() async {
-    // Wait for splash animation and auth check
-    await Future.delayed(const Duration(milliseconds: 2200));
+    // Wait for the exact moment the animation feels complete
+    await Future.delayed(const Duration(milliseconds: 2800));
 
     if (!mounted) return;
     final authProvider = context.read<AuthProvider>();
     await authProvider.initialize();
 
     if (!mounted) return;
-
+    
+    setState(() { _isNavigating = true; });
+    
+    // Smooth fade out of the splash screen
+    await _controller.reverse(from: 1.0);
+    
+    if (!mounted) return;
     if (authProvider.isLoggedIn) {
       Navigator.of(context).pushReplacementNamed('/home');
     } else {
@@ -66,95 +104,159 @@ class _SplashScreenState extends State<SplashScreen>
   @override
   void dispose() {
     _controller.dispose();
+    _pulseController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final theme = Theme.of(context);
+
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppTheme.primaryGradient),
-        child: Center(
-          child: AnimatedBuilder(
-            animation: _controller,
-            builder: (context, child) {
-              return FadeTransition(
-                opacity: _fadeAnimation,
-                child: SlideTransition(
-                  position: _slideAnimation,
-                  child: ScaleTransition(
-                    scale: _scaleAnimation,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Logo icon
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            gradient: AppTheme.accentGradient,
-                            borderRadius: BorderRadius.circular(28),
-                            boxShadow: [
-                              BoxShadow(
-                                color: AppTheme.accentBlue.withValues(alpha: 0.4),
-                                blurRadius: 30,
-                                offset: const Offset(0, 10),
+      backgroundColor: colors.primaryBackground,
+      body: AnimatedBuilder(
+        animation: Listenable.merge([_controller, _pulseController]),
+        builder: (context, child) {
+          // A rich cinematic background mask
+          return Stack(
+            fit: StackFit.expand,
+            children: [
+              // Dynamic Background Gradient
+              Container(
+                decoration: BoxDecoration(gradient: colors.primaryGradient),
+              ),
+              
+              // Animated Blur Overlay
+              if (_blurAnimation.value > 0)
+                BackdropFilter(
+                  filter: ImageFilter.blur(
+                    sigmaX: _blurAnimation.value,
+                    sigmaY: _blurAnimation.value,
+                  ),
+                  child: Container(color: Colors.transparent),
+                ),
+
+              // Main Content
+              Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // Animated Logo
+                    SlideTransition(
+                      position: _logoSlide,
+                      child: ScaleTransition(
+                        scale: _logoScale,
+                        child: FadeTransition(
+                          opacity: _logoOpacity,
+                          child: _buildLogoContainer(colors),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 32),
+                    
+                    // Animated Typography
+                    SlideTransition(
+                      position: _textSlide,
+                      child: FadeTransition(
+                        opacity: _textOpacity,
+                        child: Column(
+                          children: [
+                            Text(
+                              'RoUniity',
+                              style: theme.textTheme.displayMedium?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -1,
+                                shadows: [
+                                  Shadow(
+                                    color: colors.accentPrimary.withValues(alpha: 0.3 * _pulseController.value),
+                                    blurRadius: 20,
+                                  ),
+                                ],
                               ),
-                            ],
-                          ),
-                          child: const Icon(
-                            Icons.navigation_rounded,
-                            size: 50,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-                        // App name
-                        Text(
-                          'TrailMate',
-                          style: TextStyle(
-                            fontSize: 36,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.textPrimary,
-                            letterSpacing: -0.5,
-                            shadows: [
-                              Shadow(
-                                color: AppTheme.accentBlue.withValues(alpha: 0.3),
-                                blurRadius: 20,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Navigate Together',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w400,
-                            color: AppTheme.textSecondary,
-                            letterSpacing: 2,
-                          ),
-                        ),
-                        const SizedBox(height: 60),
-                        // Loading indicator
-                        SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 3,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              AppTheme.accentBlue.withValues(alpha: 0.7),
                             ),
-                          ),
+                            const SizedBox(height: 8),
+                            Text(
+                              'Explore Together',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: colors.textSecondary,
+                                letterSpacing: 4,
+                                fontWeight: FontWeight.w300,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              // Subtle Loading Indicator at the bottom
+              Positioned(
+                bottom: 48,
+                left: 0,
+                right: 0,
+                child: AnimatedOpacity(
+                  opacity: (_textOpacity.value > 0.8 && !_isNavigating) ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        valueColor: AlwaysStoppedAnimation<Color>(
+                          colors.accentPrimary.withValues(alpha: 0.5),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              );
-            },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildLogoContainer(AppColorScheme colors) {
+    // Creating a premium glassmorphic/glowing housing for the logo
+    final glowOpacity = 0.2 + (0.15 * _pulseController.value);
+    
+    return Container(
+      width: 140,
+      height: 140,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow: [
+          BoxShadow(
+            color: colors.accentPrimary.withValues(alpha: glowOpacity),
+            blurRadius: 50,
+            spreadRadius: 10 * _pulseController.value,
+          ),
+          BoxShadow(
+            color: colors.accentSecondary.withValues(alpha: glowOpacity),
+            blurRadius: 40,
+            spreadRadius: -5,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(40),
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: colors.borderColor.withValues(alpha: 0.3),
+              width: 1.5,
+            ),
+            borderRadius: BorderRadius.circular(40),
+          ),
+          child: Image.asset(
+            'assets/logo_dark.jpg',
+            fit: BoxFit.cover,
           ),
         ),
       ),

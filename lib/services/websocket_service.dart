@@ -115,6 +115,18 @@ class WebSocketService {
       }
     });
 
+    socket.on('alert:regroup', (data) {
+      if (data is Map<String, dynamic>) {
+        _alertController.add({...data, 'type': 'regroup'});
+      }
+    });
+
+    socket.on('alert:stopRequest', (data) {
+      if (data is Map<String, dynamic>) {
+        _alertController.add({...data, 'type': 'stopRequest'});
+      }
+    });
+
     // ==================== SOS Events ====================
     socket.on('sos:triggered', (data) {
       if (data is Map<String, dynamic>) {
@@ -249,6 +261,34 @@ class WebSocketService {
   /// Cancel SOS
   void cancelSOS(String groupId) {
     _socket?.emit('sos:cancel', {'groupId': groupId});
+  }
+
+  /// Trigger Regroup (leader only)
+  void triggerRegroup({
+    required String groupId,
+    required double lat,
+    required double lng,
+  }) {
+    _socket?.emit('alert:triggerRegroup', {
+      'groupId': groupId,
+      'lat': lat,
+      'lng': lng,
+    });
+  }
+
+  /// Request Stop
+  void requestStop({
+    required String groupId,
+    required double lat,
+    required double lng,
+    required String reason,
+  }) {
+    _socket?.emit('alert:requestStop', {
+      'groupId': groupId,
+      'lat': lat,
+      'lng': lng,
+      'reason': reason,
+    });
   }
 
   /// Acknowledge SOS (leader only)

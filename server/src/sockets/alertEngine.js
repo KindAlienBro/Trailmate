@@ -219,6 +219,54 @@ function setupAlertEngine(io) {
         console.error('[AlertEngine] SOS cancel error:', error.message);
       }
     });
+    /**
+     * Regroup — Leader requests group to regroup.
+     */
+    socket.on('alert:triggerRegroup', async (data) => {
+      try {
+        const { groupId, lat, lng } = data;
+        if (!groupId) return;
+
+        const group = await Group.findById(groupId);
+        if (!group || !group.isLeader(socket.userId)) return;
+
+        io.to(`group:${groupId}`).emit('alert:regroup', {
+          userId: socket.userId,
+          name: socket.user.name,
+          lat,
+          lng,
+          message: `${socket.user.name} has requested a regroup here.`,
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.error('[AlertEngine] Trigger regroup error:', error.message);
+      }
+    });
+
+    /**
+     * Request Stop — Member requests a stop with a reason.
+     */
+    socket.on('alert:requestStop', async (data) => {
+      try {
+        const { groupId, lat, lng, reason } = data;
+        if (!groupId) return;
+
+        const group = await Group.findById(groupId);
+        if (!group || !group.isMember(socket.userId)) return;
+
+        io.to(`group:${groupId}`).emit('alert:stopRequest', {
+          userId: socket.userId,
+          name: socket.user.name,
+          lat,
+          lng,
+          message: `${socket.user.name} needs to stop for: ${reason}`,
+          reason,
+          timestamp: Date.now(),
+        });
+      } catch (error) {
+        console.error('[AlertEngine] Request stop error:', error.message);
+      }
+    });
   });
 }
 

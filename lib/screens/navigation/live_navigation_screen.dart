@@ -8,7 +8,6 @@ import 'package:flutter_compass/flutter_compass.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
 
-import '../../core/theme.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/navigation_provider.dart';
@@ -20,7 +19,11 @@ import '../../widgets/rerouting_banner.dart';
 import '../../widgets/suggestion_card.dart';
 import '../../widgets/trip_bottom_sheet.dart';
 import '../../widgets/map_widget.dart';
+import '../../widgets/compass_speedometer.dart';
+import '../../widgets/quick_stops_bar.dart';
 import 'arrival_screen.dart';
+import '../../core/app_colors.dart';
+import '../../core/theme.dart';
 
 /// Main Live Navigation Screen
 ///
@@ -28,7 +31,7 @@ import 'arrival_screen.dart';
 class LiveNavigationScreen extends StatefulWidget {
   final String groupId;
 
-  const LiveNavigationScreen({super.key, required this.groupId});
+  LiveNavigationScreen({super.key, required this.groupId});
 
   @override
   State<LiveNavigationScreen> createState() => _LiveNavigationScreenState();
@@ -143,7 +146,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     _mapAnimController?.dispose(); // Cancel any existing animation
     
     _mapAnimController = AnimationController(
-      duration: const Duration(milliseconds: 500), // Smooth 500ms glide
+      duration: Duration(milliseconds: 500), // Smooth 500ms glide
       vsync: this,
     );
 
@@ -251,12 +254,245 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
     );
   }
 
+  void _triggerRegroup() {
+    final nav = context.read<NavigationProvider>();
+    final me = nav.locationService.lastPosition;
+    final group = context.read<GroupProvider>().currentGroup;
+    if (group != null && me != null) {
+      nav.wsService.triggerRegroup(
+        groupId: group.id,
+        lat: me.latitude,
+        lng: me.longitude,
+      );
+    }
+  }
+
+  void _triggerStopRequest() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) => _StopRequestSheet(
+        onSubmit: (reason) {
+          final nav = context.read<NavigationProvider>();
+          final me = nav.locationService.lastPosition;
+          final group = context.read<GroupProvider>().currentGroup;
+          if (group != null && me != null) {
+            nav.wsService.requestStop(
+              groupId: group.id,
+              lat: me.latitude,
+              lng: me.longitude,
+              reason: reason,
+            );
+          }
+          Navigator.pop(ctx);
+        },
+      ),
+    );
+  }
+
   void _cancelSos() {
     context.read<NavigationProvider>().wsService.cancelSOS(widget.groupId);
   }
 
+  void _onQuickStopCategoryTap(StopCategory category) async {
+    final nav = context.read<NavigationProvider>();
+    final pos = nav.locationService.lastPosition;
+    if (pos == null) return;
+
+    // Toggle category
+    if (nav.activeStopCategory == category.label) {
+      nav.clearStop();
+      return;
+    }
+
+    nav.setActiveStopCategory(category.label);
+    await nav.fetchNearbyPlaces(pos.latitude, pos.longitude, category.apiType);
+
+    // We don't auto-select here anymore. The UI will display a horizontal
+    // list of the options and let the user pick one.
+  }
+
+  void _confirmAddStop(BuildContext context, NavigationProvider navProvider, NearbyPlace place) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.of(context).primaryBackground,
+        title: Text('Add Detour?', style: TextStyle(color: AppColors.of(context).textPrimary)),
+        content: Text('Do you want to add ${place.name} to your route?', style: TextStyle(color: AppColors.of(context).textSecondary)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx), 
+            child: Text('Cancel', style: TextStyle(color: AppColors.of(context).textTertiary))
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFFD600), foregroundColor: Colors.black),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              debugPrint('UI: Add Stop pressed for ${place.name}');
+              await navProvider.selectStop(place);
+              
+              // Clear active category to minimize the stops menu
+              navProvider.setActiveStopCategory(null);
+              
+              // Map Zoom out
+              final pos = navProvider.locationService.lastPosition;
+              if (pos != null && place.lat != null && place.lng != null) {
+                debugPrint('UI: Fitting camera bounds to show current pos and detour');
+                
+                setState(() {
+                  _userPannedMap = true;
+                  _mapOrientation = MapOrientation.free;
+                });
+                
+                final bounds = LatLngBounds.fromPoints([
+                  LatLng(pos.latitude, pos.longitude),
+                  LatLng(place.lat!, place.lng!),
+                ]);
+                _mapController.fitCamera(CameraFit.bounds(
+                  bounds: bounds,
+                  padding: const EdgeInsets.all(80.0),
+                ));
+              }
+            },
+            child: const Text('Add Stop', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showStepsSheet(BuildContext context) {
+    final colors = AppColors.of(context);
+    final nav = context.read<NavigationProvider>();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        initialChildSize: 0.5,
+        minChildSize: 0.3,
+        maxChildSize: 0.8,
+        builder: (_, controller) => Container(
+          decoration: BoxDecoration(
+            color: colors.primaryBackground,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            border: Border.all(color: colors.borderColor),
+          ),
+          child: Column(
+            children: [
+              // Pull tab
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.textTertiary.withValues(alpha: 0.5),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Row(
+                  children: [
+                    Icon(Icons.list_alt_rounded, color: colors.accentPrimary, size: 20),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Route Steps',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              Expanded(
+                child: ListView.builder(
+                  controller: controller,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: nav.routeSteps.length,
+                  itemBuilder: (context, index) {
+                    final step = nav.routeSteps[index];
+                    final isCurrent = index == nav.routeSteps.indexOf(nav.currentStep ?? nav.routeSteps.first);
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isCurrent
+                            ? colors.accentPrimary.withValues(alpha: 0.1)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        border: isCurrent
+                            ? Border.all(color: colors.accentPrimary.withValues(alpha: 0.3))
+                            : null,
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: isCurrent
+                                  ? colors.accentPrimary.withValues(alpha: 0.2)
+                                  : colors.surfaceColor,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Center(
+                              child: Text(
+                                '${index + 1}',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: isCurrent ? colors.accentPrimary : colors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              step.instruction,
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: isCurrent ? colors.textPrimary : colors.textSecondary,
+                                fontWeight: isCurrent ? FontWeight.w600 : FontWeight.w400,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            step.distance > 1000
+                                ? '${(step.distance / 1000).toStringAsFixed(1)} km'
+                                : '${step.distance.toStringAsFixed(0)} m',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.textTertiary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final isDarkMode = colors.brightness == Brightness.dark;
+
     return Scaffold(
       key: _scaffoldKey,
       drawer: _buildMembersDrawer(context),
@@ -266,7 +502,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
           final leaderId = groupProvider.currentGroup?.leaderId;
           
           // Determine initial center
-          LatLng center = const LatLng(20.5937, 78.9629); // India center default
+          LatLng center = LatLng(20.5937, 78.9629); // India center default
           if (navProvider.locationService.lastPosition != null) {
             center = LatLng(
               navProvider.locationService.lastPosition!.latitude,
@@ -299,6 +535,23 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   deviceHeading: _deviceHeading,
                   aiWaypoints: groupProvider.currentGroup?.route.aiWaypoints ?? [],
                   onWaypointTap: (wp) => _showWaypointDetails(context, wp),
+                  detourPolyline: navProvider.detourPolyline,
+                  sosPolyline: navProvider.sosPolyline,
+                  nearbyPlaces: navProvider.nearbyPlaces,
+                  isDarkMode: DateTime.now().hour >= 18 || DateTime.now().hour < 6, // Night time check
+                  activeSuggestion: navProvider.activeSuggestion,
+                  onSuggestionDismiss: navProvider.dismissSuggestion,
+                  onSuggestionNavigate: () {
+                    final suggestionName = navProvider.activeSuggestion!.name;
+                    navProvider.dismissSuggestion();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Adding $suggestionName to your route...'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
+                    );
+                    // Future: implement dynamic re-routing with the new waypoint
+                  },
                 ),
               ),
 
@@ -311,11 +564,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                     children: [
                       if (_navState == NavigationState.active)
                         navProvider.isRerouting
-                            ? const ReroutingBanner()
+                            ? ReroutingBanner()
                             : DirectionsBanner(
                                 currentStep: navProvider.currentStep,
                                 upcomingStep: navProvider.upcomingStep,
                                 distanceToNextManeuver: navProvider.distanceToNextStep,
+                                detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
+                                distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
                               )
                       else
                         Padding(
@@ -326,12 +581,12 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                               // Drawer button
                               Container(
                                 decoration: BoxDecoration(
-                                  color: AppTheme.cardDark.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: AppTheme.borderDark),
+                                  color: colors.cardColor.withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(color: colors.borderColor),
                                 ),
                                 child: IconButton(
-                                  icon: const Icon(Icons.people_alt_rounded, color: AppTheme.textPrimary),
+                                  icon: Icon(Icons.people_alt_rounded, color: colors.textPrimary),
                                   onPressed: () => _scaffoldKey.currentState?.openDrawer(),
                                 ),
                               ),
@@ -339,12 +594,12 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                               // Exit button
                               Container(
                                 decoration: BoxDecoration(
-                                  color: AppTheme.cardDark.withValues(alpha: 0.9),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: AppTheme.borderDark),
+                                  color: colors.cardColor.withValues(alpha: 0.9),
+                                  borderRadius: BorderRadius.circular(24),
+                                  border: Border.all(color: colors.borderColor),
                                 ),
                                 child: IconButton(
-                                  icon: const Icon(Icons.close_rounded, color: AppTheme.textPrimary),
+                                  icon: Icon(Icons.close_rounded, color: colors.textPrimary),
                                   onPressed: () {
                                     navProvider.stopNavigation();
                                     setState(() {
@@ -370,7 +625,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   child: Padding(
                     padding: EdgeInsets.only(top: _navState == NavigationState.active ? 120 : 60), // Sit below the top bar/banner
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 280),
+                      constraints: BoxConstraints(maxHeight: 280),
                       child: SingleChildScrollView(
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
@@ -389,91 +644,104 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                 ),
               ),
 
-              // 3. Floating Action Buttons (Glassmorphism Pill)
+              // 2.7 Compass Widget (top-right during active navigation)
+              if (_navState == NavigationState.active)
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.topRight,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 16, top: 120),
+                      child: CompassWidget(heading: _deviceHeading),
+                    ),
+                  ),
+                ),
+
+              // 2.8 Speedometer Widget (top-left during active navigation)
+              if (_navState == NavigationState.active)
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    child: Padding(
+                      padding: const EdgeInsets.only(left: 16, top: 120),
+                      child: SpeedometerWidget(
+                        speedKmh: navProvider.memberPositions[currentUserId]?.speed ?? 0,
+                      ),
+                    ),
+                  ),
+                ),
+
+              // 3. Floating Action Buttons (Compact Glassmorphism Pill)
               SafeArea(
                 child: Align(
-                  alignment: Alignment.centerRight,
+                  alignment: const Alignment(1.0, -0.3), // Moved up from centerRight to avoid overlapping the places list
                   child: Padding(
-                    padding: const EdgeInsets.only(right: 16),
+                    padding: const EdgeInsets.only(right: 12),
                     child: ClipRRect(
-                      borderRadius: BorderRadius.circular(30),
+                      borderRadius: BorderRadius.circular(32),
                       child: BackdropFilter(
                         filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                         child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
                           decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(30),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.1), width: 1),
+                            color: Colors.black.withValues(alpha: 0.35),
+                            borderRadius: BorderRadius.circular(32),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1),
                             boxShadow: [
                               BoxShadow(
                                 color: Colors.black.withValues(alpha: 0.2),
                                 blurRadius: 10,
-                                offset: const Offset(0, 5),
+                                offset: Offset(0, 5),
                               ),
                             ],
                           ),
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              // SOS Button
+                              // SOS Button (compact)
                               SosButton(
                                 isActive: navProvider.isSosActive && navProvider.sosUserId == currentUserId,
                                 onTrigger: _triggerSos,
                                 onCancel: _cancelSos,
                               ),
-                              const SizedBox(height: 16),
-                              Container(height: 1, width: 30, color: Colors.white.withValues(alpha: 0.1)),
-                              const SizedBox(height: 16),
-                              // TTS Toggle
-                              Container(
-                                width: 50,
-                                height: 50,
-                                decoration: const BoxDecoration(
-                                  color: Colors.transparent,
-                                  shape: BoxShape.circle,
+                              SizedBox(height: 10),
+                              Container(height: 1, width: 24, color: Colors.white.withValues(alpha: 0.08)),
+                              SizedBox(height: 10),
+                              if (currentUserId != null && groupProvider.currentGroup?.isLeader(currentUserId) == true) ...[
+                                _CompactActionButton(
+                                  icon: Icons.group_add_rounded,
+                                  color: colors.accentPrimary,
+                                  onTap: _triggerRegroup,
                                 ),
-                                child: IconButton(
-                                  icon: Icon(
-                                    navProvider.ttsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-                                    color: navProvider.ttsEnabled ? AppTheme.accentGreen : AppTheme.textSecondary, 
-                                    size: 28,
-                                  ),
-                                  onPressed: navProvider.toggleTts,
-                                ),
+                                SizedBox(height: 10),
+                              ],
+                              _CompactActionButton(
+                                icon: Icons.local_cafe_rounded,
+                                color: colors.accentWarning,
+                                onTap: _triggerStopRequest,
                               ),
-                              const SizedBox(height: 8),
-                              // Compass Orientation
-                              Container(
-                                width: 50,
-                                height: 50,
-                                decoration: const BoxDecoration(
-                                  color: Colors.transparent,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: IconButton(
-                                  icon: Icon(
-                                    _mapOrientation == MapOrientation.headingUp ? Icons.explore_rounded : 
+                              SizedBox(height: 10),
+                              Container(height: 1, width: 24, color: Colors.white.withValues(alpha: 0.08)),
+                              SizedBox(height: 10),
+                              // TTS Toggle (compact)
+                              _CompactActionButton(
+                                icon: navProvider.ttsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                                color: navProvider.ttsEnabled ? colors.accentSecondary : colors.textSecondary, 
+                                onTap: navProvider.toggleTts,
+                              ),
+                              SizedBox(height: 6),
+                              // Compass Orientation (compact)
+                              _CompactActionButton(
+                                icon: _mapOrientation == MapOrientation.headingUp ? Icons.explore_rounded : 
                                     (_mapOrientation == MapOrientation.northUp ? Icons.explore_off_rounded : Icons.threesixty_rounded),
-                                    color: AppTheme.accentBlue, 
-                                    size: 28,
-                                  ),
-                                  onPressed: _toggleMapOrientation,
-                                ),
+                                color: colors.accentPrimary, 
+                                onTap: _toggleMapOrientation,
                               ),
-                              const SizedBox(height: 8),
-                              // Center on me
-                              Container(
-                                width: 50,
-                                height: 50,
-                                decoration: const BoxDecoration(
-                                  color: Colors.transparent,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: IconButton(
-                                  icon: const Icon(Icons.my_location_rounded, color: AppTheme.accentBlue, size: 28),
-                                  onPressed: _centerOnMe,
-                                ),
+                              SizedBox(height: 6),
+                              // Center on me (compact)
+                              _CompactActionButton(
+                                icon: Icons.my_location_rounded,
+                                color: colors.accentPrimary,
+                                onTap: _centerOnMe,
                               ),
                             ],
                           ),
@@ -484,29 +752,31 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                 ),
               ),
 
+              // Speedometer moved to top-left (section 2.8)
+
               // 3.5 Floating "Re-center" button when user panned away
               if (_userPannedMap && _navState == NavigationState.active)
                 SafeArea(
                   child: Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 180),
+                      padding: const EdgeInsets.only(bottom: 300),
                       child: GestureDetector(
                         onTap: _centerOnMe,
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           decoration: BoxDecoration(
-                            color: AppTheme.accentBlue,
+                            color: colors.accentPrimary,
                             borderRadius: BorderRadius.circular(24),
                             boxShadow: [
                               BoxShadow(
-                                color: AppTheme.accentBlue.withValues(alpha: 0.4),
+                                color: colors.accentPrimary.withValues(alpha: 0.4),
                                 blurRadius: 16,
-                                offset: const Offset(0, 6),
+                                offset: Offset(0, 6),
                               ),
                             ],
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
@@ -527,31 +797,53 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   ),
                 ),
 
-              // 3.8 Suggestion Card Layer
-              if (_navState == NavigationState.active && navProvider.activeSuggestion != null)
+              // 3.7 Quick Stops Bar (above bottom sheet during navigation)
+              if (_navState == NavigationState.active)
                 SafeArea(
                   child: Align(
                     alignment: Alignment.bottomCenter,
                     child: Padding(
-                      padding: const EdgeInsets.only(bottom: 140), // Sit above the trip bottom sheet
-                      child: SuggestionCard(
-                        suggestion: navProvider.activeSuggestion!,
-                        onDismiss: navProvider.dismissSuggestion,
-                        onNavigate: () {
-                          final suggestionName = navProvider.activeSuggestion!.name;
-                          navProvider.dismissSuggestion();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text('Adding $suggestionName to your route...'),
-                              behavior: SnackBarBehavior.floating,
-                            ),
-                          );
-                          // Future: implement dynamic re-routing with the new waypoint
-                        },
+                      padding: const EdgeInsets.only(bottom: 230),
+                      child: QuickStopsBar(
+                        onCategoryTap: _onQuickStopCategoryTap,
+                        activeCategory: navProvider.activeStopCategory,
                       ),
                     ),
                   ),
                 ),
+
+              // 3.75 Nearby Places List (above quick stops bar)
+              if (_navState == NavigationState.active && navProvider.activeStopCategory != null && navProvider.nearbyPlaces.isNotEmpty)
+                SafeArea(
+                  child: Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Padding(
+                      padding: const EdgeInsets.only(bottom: 290), // Above the quick stops bar
+                      child: SizedBox(
+                        height: 110,
+                        child: ListView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          itemCount: navProvider.nearbyPlaces.length,
+                          itemBuilder: (context, index) {
+                            final place = navProvider.nearbyPlaces[index];
+                            final isSelected = navProvider.selectedStop == place;
+                            return Padding(
+                              padding: const EdgeInsets.only(right: 12),
+                              child: _NearbyPlaceCard(
+                                place: place,
+                                isSelected: isSelected,
+                                onTap: () => _confirmAddStop(context, navProvider, place),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+              // (Suggestion card moved to map popup bubbles in Component 6)
 
               // 4. Bottom Layer
               if (_navState == NavigationState.active)
@@ -561,6 +853,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                     distanceRemaining: navProvider.remainingDistance > 0 ? navProvider.remainingDistance : navProvider.routeDistance,
                     durationRemaining: navProvider.remainingDuration > 0 ? navProvider.remainingDuration : navProvider.routeDuration,
                     currentSpeed: navProvider.memberPositions[currentUserId]?.speed ?? 0,
+                    memberPositions: navProvider.memberPositions,
+                    currentUserId: currentUserId,
                     onExit: () {
                       navProvider.stopNavigation();
                       setState(() {
@@ -568,6 +862,13 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                          _mapOrientation = MapOrientation.free;
                       });
                     },
+                    onMemberTap: (userId) {
+                      final pos = navProvider.memberPositions[userId];
+                      if (pos != null) {
+                        _mapController.move(pos.latLng, 16.0);
+                      }
+                    },
+                    onStepsTap: () => _showStepsSheet(context),
                   ),
                 )
               else if (_navState == NavigationState.preview)
@@ -579,11 +880,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                       child: Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: AppTheme.cardDark.withValues(alpha: 0.9),
+                          color: colors.cardColor.withValues(alpha: 0.9),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: AppTheme.borderDark),
+                          border: Border.all(color: colors.borderColor),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: const Offset(0, 5))
+                            BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: Offset(0, 5))
                           ]
                         ),
                         child: Column(
@@ -593,16 +894,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                               children: [
                                 _buildDashboardStat(Icons.directions_car_rounded, 'Distance', '${(navProvider.routeDistance / 1000).toStringAsFixed(1)} km'),
-                                Container(width: 1, height: 40, color: AppTheme.borderDark),
+                                Container(width: 1, height: 40, color: colors.borderColor),
                                 _buildDashboardStat(Icons.timer_rounded, 'ETA', '${(navProvider.routeDuration / 60).toStringAsFixed(0)} min'),
                               ],
                             ),
-                            const SizedBox(height: 16),
+                            SizedBox(height: 16),
                             SizedBox(
                               width: double.infinity,
                               height: 56,
                               child: Container(
-                                decoration: accentButtonDecoration(),
+                                decoration: themedAccentButton(colors),
                                 child: ElevatedButton(
                                   onPressed: _centerOnMe,
                                   style: ElevatedButton.styleFrom(
@@ -610,7 +911,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                                     shadowColor: Colors.transparent,
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                                   ),
-                                  child: const Row(
+                                  child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
                                       Icon(Icons.navigation_rounded, color: Colors.white),
@@ -679,28 +980,30 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   }
 
   Widget _buildDashboardStat(IconData icon, String label, String value) {
+    final colors = AppColors.of(context);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
           children: [
-            Icon(icon, size: 16, color: AppTheme.textSecondary),
-            const SizedBox(width: 6),
-            Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+            Icon(icon, size: 16, color: colors.textSecondary),
+            SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 12, color: colors.textSecondary)),
           ],
         ),
-        const SizedBox(height: 4),
+        SizedBox(height: 4),
         Text(
           value,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: colors.textPrimary),
         ),
       ],
     );
   }
 
   Widget _buildMembersDrawer(BuildContext context) {
+    final colors = AppColors.of(context);
     return Drawer(
-      backgroundColor: AppTheme.primaryDark,
+      backgroundColor: colors.primaryBackground,
       child: SafeArea(
         child: Consumer2<NavigationProvider, GroupProvider>(
           builder: (context, navProvider, groupProvider, _) {
@@ -717,17 +1020,17 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                     children: [
                       Text(
                         group.name,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: colors.textPrimary),
                       ),
-                      const SizedBox(height: 8),
+                      SizedBox(height: 8),
                       Text(
                         'Live Locations',
-                        style: TextStyle(fontSize: 14, color: AppTheme.accentBlue),
+                        style: TextStyle(fontSize: 14, color: colors.accentPrimary),
                       ),
                     ],
                   ),
                 ),
-                const Divider(color: AppTheme.borderDark),
+                Divider(color: colors.borderColor),
                 Expanded(
                   child: ListView.builder(
                     itemCount: group.members.length,
@@ -736,14 +1039,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                       final pos = navProvider.memberPositions[member.userId];
                       
                       // Status color
-                      Color statusColor = AppTheme.textSecondary;
+                      Color statusColor = colors.textSecondary;
                       if (pos != null) {
                         if (pos.status == 'sos') {
-                          statusColor = AppTheme.accentRed;
+                          statusColor = colors.accentDanger;
                         } else if (pos.status == 'deviated' || pos.status == 'separated') {
-                          statusColor = AppTheme.accentOrange;
+                          statusColor = colors.accentWarning;
                         } else {
-                          statusColor = AppTheme.accentGreen;
+                          statusColor = colors.accentSecondary;
                         }
                       }
 
@@ -752,21 +1055,21 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                           width: 40,
                           height: 40,
                           decoration: BoxDecoration(
-                            color: AppTheme.cardDark,
+                            color: colors.cardColor,
                             shape: BoxShape.circle,
                             border: Border.all(color: statusColor, width: 2),
                           ),
                           child: Center(
                             child: Text(
                               member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
-                              style: const TextStyle(fontWeight: FontWeight.w700, color: AppTheme.textPrimary),
+                              style: TextStyle(fontWeight: FontWeight.w700, color: colors.textPrimary),
                             ),
                           ),
                         ),
-                        title: Text(member.name, style: const TextStyle(color: AppTheme.textPrimary)),
+                        title: Text(member.name, style: TextStyle(color: colors.textPrimary)),
                         subtitle: Text(
                           pos != null ? '${pos.speed.toStringAsFixed(0)} km/h • ${pos.status}' : 'Waiting for GPS...',
-                          style: TextStyle(color: AppTheme.textSecondary, fontSize: 12),
+                          style: TextStyle(color: colors.textSecondary, fontSize: 12),
                         ),
                         onTap: () {
                           if (pos != null) {
@@ -785,11 +1088,11 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text(
+                      Text(
                         'Find Nearby',
-                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
+                        style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: colors.textPrimary),
                       ),
-                      const SizedBox(height: 12),
+                      SizedBox(height: 12),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceAround,
                         children: [
@@ -810,6 +1113,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   }
 
   Widget _buildPoiButton(BuildContext context, String label, IconData icon, String type) {
+    final colors = AppColors.of(context);
     return InkWell(
       onTap: () async {
         Navigator.pop(context); // close drawer
@@ -825,14 +1129,14 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: AppTheme.surfaceDark,
+              color: colors.surfaceColor,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.borderDark),
+              border: Border.all(color: colors.borderColor),
             ),
-            child: Icon(icon, color: AppTheme.accentBlue),
+            child: Icon(icon, color: colors.accentPrimary),
           ),
-          const SizedBox(height: 8),
-          Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+          SizedBox(height: 8),
+          Text(label, style: TextStyle(fontSize: 12, color: colors.textSecondary)),
         ],
       ),
     );
@@ -873,6 +1177,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   }
 
   void _showWaypointDetails(BuildContext context, AIWaypoint wp) {
+    final colors = AppColors.of(context);
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -883,9 +1188,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
         maxChildSize: 0.9,
         builder: (_, controller) => Container(
           decoration: BoxDecoration(
-            color: AppTheme.primaryDark,
+            color: colors.primaryBackground,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: AppTheme.borderDark),
+            border: Border.all(color: colors.borderColor),
           ),
           child: FutureBuilder<Map<String, String>>(
             future: _fetchWikiData(wp.name, wp.lat, wp.lng),
@@ -904,7 +1209,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                       width: 40,
                       height: 4,
                       decoration: BoxDecoration(
-                        color: AppTheme.textTertiary.withValues(alpha: 0.5),
+                        color: colors.textTertiary.withValues(alpha: 0.5),
                         borderRadius: BorderRadius.circular(2),
                       ),
                     ),
@@ -919,23 +1224,23 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                           borderRadius: BorderRadius.circular(16),
                           child: Container(
                             height: 200,
-                            color: AppTheme.surfaceDark,
+                            color: colors.surfaceColor,
                             child: Stack(
                               fit: StackFit.expand,
                               children: [
                                 if (isLoading)
-                                  const Center(child: CircularProgressIndicator())
+                                  Center(child: CircularProgressIndicator())
                                 else if (hasImage)
                                   Image.network(
                                     wikiData['image']!,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Center(
-                                      child: Icon(Icons.landscape_rounded, size: 64, color: AppTheme.textTertiary),
+                                    errorBuilder: (_, __, ___) => Center(
+                                      child: Icon(Icons.landscape_rounded, size: 64, color: colors.textTertiary),
                                     ),
                                   )
                                 else
-                                  const Center(
-                                    child: Icon(Icons.landscape_rounded, size: 64, color: AppTheme.textTertiary),
+                                  Center(
+                                    child: Icon(Icons.landscape_rounded, size: 64, color: colors.textTertiary),
                                   ),
                                 Positioned(
                                   top: 12,
@@ -946,73 +1251,73 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                                       color: Colors.black.withValues(alpha: 0.6),
                                       shape: BoxShape.circle,
                                     ),
-                                    child: const Icon(Icons.favorite_border_rounded, color: Colors.white, size: 20),
+                                    child: Icon(Icons.favorite_border_rounded, color: Colors.white, size: 20),
                                   ),
                                 ),
                               ],
                             ),
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        SizedBox(height: 20),
                         Row(
                           children: [
-                            Text(wp.emoji, style: const TextStyle(fontSize: 32)),
-                            const SizedBox(width: 16),
+                            Text(wp.emoji, style: TextStyle(fontSize: 32)),
+                            SizedBox(width: 16),
                             Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     wp.name,
-                                    style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colors.textPrimary),
                                   ),
-                                  const SizedBox(height: 4),
+                                  SizedBox(height: 4),
                                   Text(
                                     wp.type.toUpperCase().replaceAll('_', ' '),
-                                    style: const TextStyle(color: AppTheme.accentBlue, fontSize: 13, fontWeight: FontWeight.w600),
+                                    style: TextStyle(color: colors.accentPrimary, fontSize: 13, fontWeight: FontWeight.w600),
                                   ),
                                 ],
                               ),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
-                        const Text(
+                        SizedBox(height: 16),
+                        Text(
                           'Why we recommended this:',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: colors.textPrimary),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: 8),
                         Text(
                           wp.reason,
-                          style: const TextStyle(fontSize: 15, color: AppTheme.textSecondary, height: 1.5),
+                          style: TextStyle(fontSize: 15, color: colors.textSecondary, height: 1.5),
                         ),
-                        const SizedBox(height: 24),
+                        SizedBox(height: 24),
                         
                         // Factual Info Section
-                        const Text(
+                        Text(
                           'Factual Information',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textPrimary),
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: colors.textPrimary),
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: 16),
                         if (isLoading)
-                          const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                          Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
                         else if (hasExtract)
                           Container(
                             padding: const EdgeInsets.all(16),
                             decoration: BoxDecoration(
-                              color: AppTheme.surfaceDark,
+                              color: colors.surfaceColor,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppTheme.borderDark),
+                              border: Border.all(color: colors.borderColor),
                             ),
                             child: Text(
                               wikiData['extract']!,
-                              style: const TextStyle(color: AppTheme.textSecondary, height: 1.5, fontSize: 14),
+                              style: TextStyle(color: colors.textSecondary, height: 1.5, fontSize: 14),
                             ),
                           )
                         else
-                          const Text(
+                          Text(
                             'No extended factual information available from Open Data sources.',
-                            style: TextStyle(color: AppTheme.textTertiary, fontStyle: FontStyle.italic),
+                            style: TextStyle(color: colors.textTertiary, fontStyle: FontStyle.italic),
                           ),
                       ],
                     ),
@@ -1021,8 +1326,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   Container(
                     padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
                     decoration: BoxDecoration(
-                      color: AppTheme.primaryDark,
-                      border: Border(top: BorderSide(color: AppTheme.borderDark)),
+                      color: colors.primaryBackground,
+                      border: Border(top: BorderSide(color: colors.borderColor)),
                     ),
                     child: Row(
                       children: [
@@ -1030,25 +1335,25 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                           child: Container(
                             height: 56,
                             decoration: BoxDecoration(
-                              color: AppTheme.surfaceDark,
+                              color: colors.surfaceColor,
                               borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppTheme.borderDark),
+                              border: Border.all(color: colors.borderColor),
                             ),
-                            child: const Center(
-                              child: Text('Save', style: TextStyle(fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+                            child: Center(
+                              child: Text('Save', style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary)),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 16),
+                        SizedBox(width: 16),
                         Expanded(
                           flex: 2,
                           child: Container(
                             height: 56,
                             decoration: BoxDecoration(
-                              color: AppTheme.accentBlue,
+                              color: colors.accentPrimary,
                               borderRadius: BorderRadius.circular(16),
                             ),
-                            child: const Center(
+                            child: Center(
                               child: Text('Navigate', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
                             ),
                           ),
@@ -1061,6 +1366,239 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
             },
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Compact action button for the floating pill (40×40 with tap animation)
+class _CompactActionButton extends StatefulWidget {
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  const _CompactActionButton({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+
+  @override
+  State<_CompactActionButton> createState() => _CompactActionButtonState();
+}
+
+class _CompactActionButtonState extends State<_CompactActionButton>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _tapController;
+  late Animation<double> _tapScale;
+
+  @override
+  void initState() {
+    super.initState();
+    _tapController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 80),
+    );
+    _tapScale = Tween<double>(begin: 1.0, end: 0.85).animate(
+      CurvedAnimation(parent: _tapController, curve: Curves.easeInOut),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _tapController,
+      builder: (context, child) {
+        return GestureDetector(
+          onTapDown: (_) => _tapController.forward(),
+          onTapUp: (_) {
+            _tapController.reverse();
+            widget.onTap();
+          },
+          onTapCancel: () => _tapController.reverse(),
+          child: Transform.scale(
+            scale: _tapScale.value,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: const BoxDecoration(
+                color: Colors.transparent,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                widget.icon,
+                color: widget.color,
+                size: 22,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _NearbyPlaceCard extends StatelessWidget {
+  final NearbyPlace place;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _NearbyPlaceCard({
+    required this.place,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 160,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: isSelected ? colors.accentPrimary : colors.cardColor,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: isSelected ? colors.accentPrimary : colors.borderColor,
+            width: 2,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              place.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: isSelected ? Colors.white : colors.textPrimary,
+              ),
+            ),
+            if (place.address != null)
+              Text(
+                place.address!,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isSelected ? Colors.white70 : colors.textTertiary,
+                ),
+              ),
+            if (place.rating != null || place.distance != null) ...[
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  if (place.rating != null) ...[
+                    Icon(
+                      Icons.star_rounded,
+                      color: isSelected ? Colors.white : const Color(0xFFFFC107),
+                      size: 14,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      place.rating!.toStringAsFixed(1),
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isSelected ? Colors.white : colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                  if (place.rating != null && place.distance != null)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text('•', style: TextStyle(color: isSelected ? Colors.white70 : colors.textTertiary, fontSize: 10)),
+                    ),
+                  if (place.distance != null)
+                    Text(
+                      place.distance! > 1000 
+                        ? '${(place.distance! / 1000).toStringAsFixed(1)} km'
+                        : '${place.distance!.toInt()} m',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: isSelected ? Colors.white : colors.accentPrimary,
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StopRequestSheet extends StatelessWidget {
+  final Function(String) onSubmit;
+
+  const _StopRequestSheet({required this.onSubmit});
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final reasons = ['Fuel', 'Food', 'Restroom', 'Mechanical Issue', 'Other'];
+
+    return Container(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).padding.bottom + 16, top: 24, left: 24, right: 24),
+      decoration: BoxDecoration(
+        color: colors.primaryBackground,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Center(
+            child: Container(width: 40, height: 4, decoration: BoxDecoration(color: colors.textTertiary, borderRadius: BorderRadius.circular(2))),
+          ),
+          SizedBox(height: 24),
+          Text('Request Stop', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: colors.textPrimary)),
+          SizedBox(height: 8),
+          Text('Let the group know why you need to stop.', style: TextStyle(color: colors.textSecondary)),
+          SizedBox(height: 24),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: reasons.map((reason) {
+              return InkWell(
+                onTap: () => onSubmit(reason),
+                borderRadius: BorderRadius.circular(20),
+                child: Container(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: colors.cardColor,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: colors.borderColor),
+                  ),
+                  child: Text(
+                    reason,
+                    style: TextStyle(fontWeight: FontWeight.w600, color: colors.textPrimary),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }

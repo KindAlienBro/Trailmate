@@ -1,11 +1,17 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
-import '../../core/theme.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
+
 import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/navigation_provider.dart';
+import '../../core/app_colors.dart';
+import '../../core/theme.dart';
+import '../../utils/polyline_decoder.dart';
 
 class GroupLobbyScreen extends StatefulWidget {
   final String groupId;
@@ -18,6 +24,7 @@ class GroupLobbyScreen extends StatefulWidget {
 
 class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   bool _isRefreshing = false;
+  final MapController _mapController = MapController();
 
   @override
   void initState() {
@@ -36,24 +43,23 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   void _copyInviteCode(String code) {
     Clipboard.setData(ClipboardData(text: code));
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Invite code copied to clipboard!'),
+      SnackBar(
+        content: const Text('Invite code copied!'),
+        backgroundColor: AppColors.of(context).accentPrimary,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         behavior: SnackBarBehavior.floating,
       ),
     );
   }
 
   void _shareInviteCode(String code, String groupName) {
-    Share.share(
-      'Join my group "$groupName" on TrailMate! Use invite code: $code',
-    );
+    Share.share('Join my group "$groupName" on RoUniity! Use invite code: $code');
   }
 
   void _startTrip(GroupModel group) async {
     final navProvider = context.read<NavigationProvider>();
     final authProvider = context.read<AuthProvider>();
 
-    // Leader sets status to active
     if (group.isLeader(authProvider.currentUser!.id)) {
       await context.read<GroupProvider>().updateStatus(group.id, 'active');
       navProvider.wsService.startTrip(group.id);
@@ -67,475 +73,420 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppColors.of(context);
+    final theme = Theme.of(context);
+
     return Scaffold(
-      body: Container(
-        width: double.infinity,
-        height: double.infinity,
-        decoration: const BoxDecoration(gradient: AppTheme.primaryGradient),
-        child: SafeArea(
-          child: Consumer2<GroupProvider, AuthProvider>(
-            builder: (context, groupProvider, authProvider, _) {
-              final group = groupProvider.currentGroup;
-              
-              if (group == null || group.id != widget.groupId) {
-                return const Center(
-                  child: CircularProgressIndicator(color: AppTheme.accentBlue),
-                );
-              }
+      backgroundColor: colors.primaryBackground,
+      body: Consumer2<GroupProvider, AuthProvider>(
+        builder: (context, groupProvider, authProvider, _) {
+          final group = groupProvider.currentGroup;
+          
+          if (group == null || group.id != widget.groupId) {
+            return Center(child: CircularProgressIndicator(color: colors.accentPrimary));
+          }
 
-              final isLeader = group.isLeader(authProvider.currentUser!.id);
+          final isLeader = group.isLeader(authProvider.currentUser!.id);
 
-              return RefreshIndicator(
-                onRefresh: _loadGroup,
-                color: AppTheme.accentBlue,
-                backgroundColor: AppTheme.surfaceDark,
-                child: CustomScrollView(
-                  slivers: [
-                    // App bar
-                    SliverAppBar(
-                      backgroundColor: Colors.transparent,
-                      elevation: 0,
-                      pinned: true,
-                      leading: IconButton(
-                        icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.textPrimary),
-                        onPressed: () => Navigator.pop(context),
-                      ),
-                      title: Text(
-                        group.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: AppTheme.textPrimary,
-                        ),
-                      ),
-                      centerTitle: true,
-                    ),
-
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.all(24.0),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Invite Code Card
-                            Container(
-                              padding: const EdgeInsets.all(24),
-                              decoration: glassCardDecoration(opacity: 0.08),
-                              child: Column(
-                                children: [
-                                  const Text(
-                                    'Invite Code',
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.w500,
-                                      color: AppTheme.textSecondary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    group.inviteCode,
-                                    style: const TextStyle(
-                                      fontSize: 32,
-                                      fontWeight: FontWeight.w700,
-                                      letterSpacing: 8,
-                                      color: AppTheme.textPrimary,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 16),
-                                  Row(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      TextButton.icon(
-                                        onPressed: () => _copyInviteCode(group.inviteCode),
-                                        icon: const Icon(Icons.copy_rounded, size: 18),
-                                        label: const Text('Copy'),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: AppTheme.accentBlue,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      TextButton.icon(
-                                        onPressed: () => _shareInviteCode(group.inviteCode, group.name),
-                                        icon: const Icon(Icons.share_rounded, size: 18),
-                                        label: const Text('Share'),
-                                        style: TextButton.styleFrom(
-                                          foregroundColor: AppTheme.accentPurple,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 32),
-
-                            // Route Section
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                              children: [
-                                const Text(
-                                  'Route',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textPrimary,
-                                  ),
-                                ),
-                                if (isLeader)
-                                  TextButton.icon(
-                                    onPressed: () {
-                                      // TODO: Navigate to route planner
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Route planning coming next!')),
-                                      );
-                                    },
-                                    icon: const Icon(Icons.edit_location_alt_outlined, size: 18),
-                                    label: Text(group.route.hasRoute ? 'Edit' : 'Add Route'),
-                                    style: TextButton.styleFrom(
-                                      foregroundColor: AppTheme.accentBlue,
-                                    ),
-                                  ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: glassCardDecoration(opacity: 0.04),
-                              child: group.route.hasRoute
-                                  ? Column(
-                                      children: [
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.my_location_rounded, color: AppTheme.accentBlue, size: 20),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Text(
-                                                group.route.origin.name.isNotEmpty
-                                                    ? group.route.origin.name
-                                                    : group.route.origin.address,
-                                                style: const TextStyle(color: AppTheme.textPrimary),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        Padding(
-                                          padding: const EdgeInsets.only(left: 9, top: 4, bottom: 4),
-                                          child: Align(
-                                            alignment: Alignment.centerLeft,
-                                            child: Container(
-                                              width: 2,
-                                              height: 16,
-                                              color: AppTheme.borderDark,
-                                            ),
-                                          ),
-                                        ),
-                                        Row(
-                                          children: [
-                                            const Icon(Icons.location_on_rounded, color: AppTheme.accentGreen, size: 20),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Text(
-                                                group.route.destination.name.isNotEmpty
-                                                    ? group.route.destination.name
-                                                    : group.route.destination.address,
-                                                style: const TextStyle(color: AppTheme.textPrimary),
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 16),
-                                        Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceAround,
-                                          children: [
-                                            _buildRouteStat(
-                                              Icons.route_outlined,
-                                              group.route.distanceText,
-                                            ),
-                                            _buildRouteStat(
-                                              Icons.access_time_rounded,
-                                              group.route.durationText,
-                                            ),
-                                            _buildRouteStat(
-                                              Icons.place_outlined,
-                                              '${group.route.waypoints.length} stops',
-                                            ),
-                                          ],
-                                        ),
-                                        // Route Mode Badge
-                                        const SizedBox(height: 14),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                          decoration: BoxDecoration(
-                                            color: group.route.isAdventure
-                                                ? AppTheme.accentPurple.withValues(alpha: 0.15)
-                                                : AppTheme.accentBlue.withValues(alpha: 0.1),
-                                            borderRadius: BorderRadius.circular(10),
-                                            border: Border.all(
-                                              color: group.route.isAdventure
-                                                  ? AppTheme.accentPurple.withValues(alpha: 0.3)
-                                                  : AppTheme.accentBlue.withValues(alpha: 0.2),
-                                            ),
-                                          ),
-                                          child: Row(
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(group.route.routeModeEmoji, style: const TextStyle(fontSize: 14)),
-                                              const SizedBox(width: 6),
-                                              Text(
-                                                '${group.route.routeModeTitle} Mode',
-                                                style: TextStyle(
-                                                  fontSize: 12,
-                                                  fontWeight: FontWeight.w600,
-                                                  color: group.route.isAdventure ? AppTheme.accentPurple : AppTheme.accentBlue,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        // AI Waypoints
-                                        if (group.route.aiWaypoints.isNotEmpty) ...[
-                                          const SizedBox(height: 14),
-                                          ...group.route.aiWaypoints.map((wp) => Padding(
-                                            padding: const EdgeInsets.only(bottom: 8),
-                                            child: Row(
-                                              children: [
-                                                Text(wp.emoji, style: const TextStyle(fontSize: 16)),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text(
-                                                        wp.name,
-                                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.textPrimary),
-                                                      ),
-                                                      if (wp.reason.isNotEmpty)
-                                                        Text(
-                                                          wp.reason,
-                                                          style: const TextStyle(fontSize: 11, color: AppTheme.textTertiary),
-                                                        ),
-                                                    ],
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          )),
-                                        ],
-                                        // Route Character
-                                        if (group.route.routeCharacter.isNotEmpty) ...[
-                                          const SizedBox(height: 8),
-                                          Text(
-                                            group.route.routeCharacter,
-                                            style: const TextStyle(fontSize: 12, color: AppTheme.textTertiary, fontStyle: FontStyle.italic),
-                                          ),
-                                        ],
-                                      ],
-                                    )
-                                  : Center(
-                                      child: Padding(
-                                        padding: const EdgeInsets.all(16.0),
-                                        child: Column(
-                                          children: [
-                                            Icon(Icons.map_outlined, size: 32, color: AppTheme.textTertiary.withValues(alpha: 0.5)),
-                                            const SizedBox(height: 8),
-                                            const Text(
-                                              'No route planned yet',
-                                              style: TextStyle(color: AppTheme.textSecondary),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ),
-                            ),
-                            const SizedBox(height: 32),
-
-                            // Members Section
-                            Row(
-                              children: [
-                                const Text(
-                                  'Members',
-                                  style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.textPrimary,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.surfaceDark,
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  child: Text(
-                                    '${group.members.length}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      color: AppTheme.textSecondary,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: group.members.length,
-                              separatorBuilder: (context, index) => const SizedBox(height: 12),
-                              itemBuilder: (context, index) {
-                                final member = group.members[index];
-                                final isMe = member.userId == authProvider.currentUser?.id;
-
-                                return Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.surfaceDark.withValues(alpha: 0.5),
-                                    borderRadius: BorderRadius.circular(16),
-                                    border: Border.all(
-                                      color: isMe ? AppTheme.accentBlue.withValues(alpha: 0.3) : Colors.transparent,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        width: 44,
-                                        height: 44,
-                                        decoration: BoxDecoration(
-                                          color: member.isLeader
-                                              ? AppTheme.accentPurple.withValues(alpha: 0.2)
-                                              : AppTheme.cardDark,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
-                                            style: TextStyle(
-                                              fontSize: 16,
-                                              fontWeight: FontWeight.w600,
-                                              color: member.isLeader ? AppTheme.accentPurple : AppTheme.textPrimary,
-                                            ),
-                                          ),
-                                        ),
-                                      ),
-                                      const SizedBox(width: 16),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              children: [
-                                                Text(
-                                                  member.name,
-                                                  style: const TextStyle(
-                                                    fontSize: 16,
-                                                    fontWeight: FontWeight.w500,
-                                                    color: AppTheme.textPrimary,
-                                                  ),
-                                                ),
-                                                if (isMe) ...[
-                                                  const SizedBox(width: 8),
-                                                  Container(
-                                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                                    decoration: BoxDecoration(
-                                                      color: AppTheme.accentBlue.withValues(alpha: 0.2),
-                                                      borderRadius: BorderRadius.circular(4),
-                                                    ),
-                                                    child: const Text(
-                                                      'You',
-                                                      style: TextStyle(fontSize: 10, color: AppTheme.accentBlue),
-                                                    ),
-                                                  ),
-                                                ]
-                                              ],
-                                            ),
-                                            if (member.isLeader) ...[
-                                              const SizedBox(height: 2),
-                                              const Text(
-                                                'Trip Leader',
-                                                style: TextStyle(fontSize: 12, color: AppTheme.accentPurple),
-                                              ),
-                                            ],
-                                          ],
-                                        ),
-                                      ),
-                                      // Status icon (green check for ready)
-                                      Icon(
-                                        Icons.check_circle_rounded,
-                                        color: AppTheme.accentGreen.withValues(alpha: 0.8),
-                                        size: 20,
-                                      ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            ),
-                            const SizedBox(height: 100), // padding for bottom button
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: Consumer2<GroupProvider, AuthProvider>(
-        builder: (context, gp, ap, _) {
-          final group = gp.currentGroup;
-          if (group == null || group.id != widget.groupId) return const SizedBox.shrink();
-
-          final isLeader = group.isLeader(ap.currentUser!.id);
-
-          return Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: Container(
-                decoration: accentButtonDecoration(),
-                child: ElevatedButton.icon(
-                  onPressed: (!isLeader && group.status != 'active')
-                      ? null
-                      : () => _startTrip(group),
-                  icon: Icon(
-                    isLeader ? Icons.navigation_rounded : Icons.login_rounded,
-                    color: Colors.white,
-                  ),
-                  label: Text(
-                    isLeader ? 'Start Trip' : 'Join Navigation',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    shadowColor: Colors.transparent,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                ),
+          return Stack(
+            children: [
+              // MAP BACKGROUND
+              Positioned.fill(
+                bottom: MediaQuery.of(context).size.height * 0.4,
+                child: _buildMapPreview(group, colors),
               ),
-            ),
+
+              // HEADER
+              Positioned(
+                top: 0, left: 0, right: 0,
+                child: _buildHeader(group, colors, theme),
+              ),
+
+              // DRAGGABLE BOTTOM SHEET LOBBY
+              _buildDraggableLobby(group, isLeader, colors, theme),
+            ],
           );
         },
       ),
     );
   }
 
-  Widget _buildRouteStat(IconData icon, String text) {
-    return Row(
+  Widget _buildMapPreview(GroupModel group, AppColorScheme colors) {
+    LatLng? origin;
+    LatLng? dest;
+    List<LatLng> polyline = [];
+    
+    if (group.route.hasRoute) {
+      if (group.route.origin.hasLocation) {
+        origin = LatLng(group.route.origin.lat!, group.route.origin.lng!);
+      }
+      if (group.route.destination.hasLocation) {
+        dest = LatLng(group.route.destination.lat!, group.route.destination.lng!);
+      }
+      if (group.route.polyline != null) {
+        polyline = decodePolyline(group.route.polyline!);
+      }
+    }
+
+    final bounds = (origin != null && dest != null) ? LatLngBounds.fromPoints([origin, dest, ...polyline]) : null;
+
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: origin ?? const LatLng(0, 0),
+        initialZoom: 12,
+        initialCameraFit: bounds != null ? CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(40)) : null,
+        interactionOptions: const InteractionOptions(flags: InteractiveFlag.all & ~InteractiveFlag.rotate),
+      ),
       children: [
-        Icon(icon, size: 16, color: AppTheme.textSecondary),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: const TextStyle(fontSize: 14, color: AppTheme.textPrimary, fontWeight: FontWeight.w500),
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.example.trialmate',
+        ),
+        if (polyline.isNotEmpty)
+          PolylineLayer(
+            polylines: [
+              Polyline(points: polyline, color: colors.accentPrimary, strokeWidth: 5.0),
+            ],
+          ),
+        MarkerLayer(
+          markers: [
+            if (origin != null)
+              Marker(point: origin, width: 40, height: 40, child: Icon(Icons.location_on, color: colors.accentSecondary, size: 40)),
+            if (dest != null)
+              Marker(point: dest, width: 40, height: 40, child: Icon(Icons.location_on, color: colors.accentDanger, size: 40)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildHeader(GroupModel group, AppColorScheme colors, ThemeData theme) {
+    return ClipRRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+        child: Container(
+          padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 8, bottom: 16),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [colors.primaryBackground.withValues(alpha: 0.8), Colors.transparent],
+            ),
+          ),
+          child: Row(
+            children: [
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: () => Navigator.pop(context),
+                icon: Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(color: colors.surfaceColor.withValues(alpha: 0.8), shape: BoxShape.circle),
+                  child: Icon(Icons.arrow_back_rounded, color: colors.textPrimary, size: 20),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  group.name,
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: colors.textPrimary),
+                ),
+              ),
+              const SizedBox(width: 56),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDraggableLobby(GroupModel group, bool isLeader, AppColorScheme colors, ThemeData theme) {
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.2,
+      maxChildSize: 0.9,
+      builder: (context, scrollController) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(40)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              decoration: BoxDecoration(
+                color: colors.primaryBackground.withValues(alpha: 0.85),
+                border: Border(top: BorderSide(color: colors.borderColor.withValues(alpha: 0.5))),
+              ),
+              child: Stack(
+                children: [
+                  RefreshIndicator(
+                    onRefresh: _loadGroup,
+                    color: colors.accentPrimary,
+                    child: SingleChildScrollView(
+                      controller: scrollController,
+                      physics: const BouncingScrollPhysics(),
+                      padding: const EdgeInsets.only(top: 24, left: 24, right: 24, bottom: 120),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 40, height: 5,
+                              decoration: BoxDecoration(
+                                color: colors.textTertiary.withValues(alpha: 0.5),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          _buildInviteCodeCard(group, colors, theme),
+                          const SizedBox(height: 32),
+                          _buildRouteDetails(group, isLeader, colors, theme),
+                          const SizedBox(height: 32),
+                          _buildMembersList(group, colors, theme),
+                        ],
+                      ),
+                    ),
+                  ),
+                  
+                  // Start Button fixed at bottom
+                  Positioned(
+                    bottom: 0, left: 0, right: 0,
+                    child: Container(
+                      padding: const EdgeInsets.all(24),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.bottomCenter, end: Alignment.topCenter,
+                          colors: [colors.primaryBackground, colors.primaryBackground.withValues(alpha: 0.0)],
+                        ),
+                      ),
+                      child: SizedBox(
+                        width: double.infinity, height: 56,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            gradient: colors.accentGradient,
+                            borderRadius: BorderRadius.circular(32),
+                            boxShadow: [BoxShadow(color: colors.accentPrimary.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 5))],
+                          ),
+                          child: ElevatedButton.icon(
+                            onPressed: (!isLeader && group.status != 'active') ? null : () => _startTrip(group),
+                            icon: Icon(isLeader ? Icons.navigation_rounded : Icons.login_rounded, color: Colors.white),
+                            label: Text(
+                              isLeader ? 'Start Trip' : 'Join Navigation',
+                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.white),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildInviteCodeCard(GroupModel group, AppColorScheme colors, ThemeData theme) {
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: colors.surfaceColor.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(32),
+        border: Border.all(color: colors.borderColor),
+      ),
+      child: Column(
+        children: [
+          Text('Invite Code', style: theme.textTheme.titleSmall?.copyWith(color: colors.textSecondary)),
+          const SizedBox(height: 12),
+          Text(
+            group.inviteCode,
+            style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w900, letterSpacing: 8, color: colors.textPrimary),
+          ),
+          const SizedBox(height: 24),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              _buildActionButton(Icons.copy_rounded, 'Copy', colors.accentPrimary, () => _copyInviteCode(group.inviteCode), colors),
+              const SizedBox(width: 16),
+              _buildActionButton(Icons.share_rounded, 'Share', colors.accentExtra, () => _shareInviteCode(group.inviteCode, group.name), colors),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildActionButton(IconData icon, String label, Color color, VoidCallback onTap, AppColorScheme colors) {
+    return ElevatedButton.icon(
+      onPressed: onTap,
+      icon: Icon(icon, size: 18, color: color),
+      label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: color.withValues(alpha: 0.1),
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+      ),
+    );
+  }
+
+  Widget _buildRouteDetails(GroupModel group, bool isLeader, AppColorScheme colors, ThemeData theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text('Route', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: colors.textPrimary)),
+            if (isLeader)
+              TextButton.icon(
+                onPressed: () {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Route editing coming soon!'), backgroundColor: colors.accentPrimary));
+                },
+                icon: Icon(Icons.edit_location_alt_outlined, size: 18, color: colors.accentPrimary),
+                label: Text(group.route.hasRoute ? 'Edit' : 'Add Route', style: TextStyle(color: colors.accentPrimary)),
+              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: colors.surfaceColor.withValues(alpha: 0.5),
+            borderRadius: BorderRadius.circular(32),
+            border: Border.all(color: colors.borderColor),
+          ),
+          child: group.route.hasRoute ? Column(
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: colors.accentPrimary.withValues(alpha: 0.15), shape: BoxShape.circle),
+                    child: Icon(Icons.my_location_rounded, color: colors.accentPrimary, size: 20),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: Text(group.route.origin.name.isNotEmpty ? group.route.origin.name : group.route.origin.address, style: theme.textTheme.bodyLarge?.copyWith(color: colors.textPrimary, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                ],
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 17, top: 4, bottom: 4),
+                child: Align(alignment: Alignment.centerLeft, child: Container(width: 2, height: 24, color: colors.borderColor)),
+              ),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(8), decoration: BoxDecoration(color: colors.accentSecondary.withValues(alpha: 0.15), shape: BoxShape.circle),
+                    child: Icon(Icons.location_on_rounded, color: colors.accentSecondary, size: 20),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(child: Text(group.route.destination.name.isNotEmpty ? group.route.destination.name : group.route.destination.address, style: theme.textTheme.bodyLarge?.copyWith(color: colors.textPrimary, fontWeight: FontWeight.w600), maxLines: 1, overflow: TextOverflow.ellipsis)),
+                ],
+              ),
+              const SizedBox(height: 24),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  _buildStat(Icons.route_outlined, group.route.distanceText, colors, theme),
+                  _buildStat(Icons.access_time_rounded, group.route.durationText, colors, theme),
+                  _buildStat(Icons.place_outlined, '${group.route.waypoints.length} stops', colors, theme),
+                ],
+              ),
+            ],
+          ) : Center(child: Text('No route planned yet.', style: TextStyle(color: colors.textSecondary))),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStat(IconData icon, String text, AppColorScheme colors, ThemeData theme) {
+    return Column(
+      children: [
+        Icon(icon, size: 24, color: colors.textSecondary),
+        const SizedBox(height: 8),
+        Text(text, style: theme.textTheme.bodyMedium?.copyWith(color: colors.textPrimary, fontWeight: FontWeight.bold)),
+      ],
+    );
+  }
+
+  Widget _buildMembersList(GroupModel group, AppColorScheme colors, ThemeData theme) {
+    final myId = context.read<AuthProvider>().currentUser?.id;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('Members', style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold, color: colors.textPrimary)),
+            const SizedBox(width: 12),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: colors.surfaceColor, borderRadius: BorderRadius.circular(12)),
+              child: Text('${group.members.length}', style: TextStyle(fontWeight: FontWeight.bold, color: colors.textSecondary)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        ListView.separated(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          itemCount: group.members.length,
+          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          itemBuilder: (context, index) {
+            final member = group.members[index];
+            final isMe = member.userId == myId;
+
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colors.surfaceColor.withValues(alpha: 0.5),
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: isMe ? colors.accentPrimary.withValues(alpha: 0.3) : Colors.transparent),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 48, height: 48,
+                    decoration: BoxDecoration(
+                      color: member.isLeader ? colors.accentExtra.withValues(alpha: 0.2) : colors.cardColor,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(child: Text(member.name.isNotEmpty ? member.name[0].toUpperCase() : '?', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: member.isLeader ? colors.accentExtra : colors.textPrimary))),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(member.name, style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: colors.textPrimary)),
+                            if (isMe) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(color: colors.accentPrimary.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(8)),
+                                child: Text('You', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: colors.accentPrimary)),
+                              ),
+                            ]
+                          ],
+                        ),
+                        if (member.isLeader) ...[
+                          const SizedBox(height: 4),
+                          Text('Trip Leader', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: colors.accentExtra)),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Icon(Icons.check_circle_rounded, color: colors.accentSecondary.withValues(alpha: 0.8), size: 24),
+                ],
+              ),
+            );
+          },
         ),
       ],
     );

@@ -46,7 +46,7 @@ async function proxyToOla(olaPath, queryParams, res) {
     const response = await axios.get(`${OLA_BASE_URL}${olaPath}`, {
       params,
       headers: {
-        'X-Request-Id': `trailmate-${Date.now()}`,
+        'X-Request-Id': `rouniity-${Date.now()}`,
       },
       timeout: 15000,
     });
@@ -108,7 +108,7 @@ router.post('/directions', async (req, res) => {
       null,
       {
         params,
-        headers: { 'X-Request-Id': `trailmate-dir-${Date.now()}` },
+        headers: { 'X-Request-Id': `rouniity-dir-${Date.now()}` },
         timeout: 15000,
       }
     );
@@ -127,14 +127,57 @@ router.post('/directions', async (req, res) => {
  * Proxy to Ola Maps Nearby Search API
  * Query: location (lat,lng), types (gas_station, restaurant, etc.)
  */
-router.get('/nearby', (req, res) => {
+router.get('/nearby', async (req, res) => {
   const { location, types, radius } = req.query;
   if (!location || !types) {
     return res.status(400).json({ error: 'location and types are required' });
   }
-  const params = { layers: 'venue', location, types };
+  const params = { layers: 'venue', location, types, limit: 20, size: 20 };
   if (radius) params.radius = radius;
-  return proxyToOla('/places/v1/nearbysearch', params, res);
+  
+  try {
+    const apiKey = getApiKey();
+    params.api_key = apiKey;
+    const response = await axios.get(`${OLA_BASE_URL}/places/v1/nearbysearch`, {
+      params,
+      headers: { 'X-Request-Id': `rouniity-nearby-${Date.now()}` },
+      timeout: 15000,
+    });
+    
+    const data = response.data;
+    if (data && data.predictions) {
+      // Limit to first 20 predictions to avoid excessive detail requests
+      const limit = Math.min(data.predictions.length, 20);
+      data.predictions = data.predictions.slice(0, limit);
+      
+      const promises = data.predictions.map(async (p) => {
+        try {
+          if (p.place_id) {
+            const detailUrl = `${OLA_BASE_URL}/places/v1/details?place_id=${p.place_id}&api_key=${apiKey}`;
+            const detailRes = await axios.get(detailUrl, { timeout: 5000 });
+            const geom = detailRes.data?.result?.geometry?.location;
+            if (geom) {
+              p.geometry = { location: geom };
+              console.log(`[OlaProxy] Successfully fetched geometry for ${p.place_id}:`, geom);
+            } else {
+              console.log(`[OlaProxy] No geometry found in details for ${p.place_id}`);
+            }
+          }
+        } catch (e) {
+          console.error(`[OlaProxy] Failed to fetch details for ${p.place_id}:`, e.message);
+        }
+        return p;
+      });
+      await Promise.all(promises);
+    }
+    
+    res.json(data);
+  } catch (error) {
+    const status = error.response?.status || 500;
+    const message = error.response?.data?.error || error.message;
+    console.error('Nearby search proxy error:', message);
+    res.status(status).json({ error: `Nearby Search API error: ${message}` });
+  }
 });
 
 /**
@@ -194,7 +237,7 @@ router.post('/distance-matrix', async (req, res) => {
       `${OLA_BASE_URL}/routing/v1/distanceMatrix`,
       {
         params: { origins, destinations, api_key: getApiKey() },
-        headers: { 'X-Request-Id': `trailmate-dm-${Date.now()}` },
+        headers: { 'X-Request-Id': `rouniity-dm-${Date.now()}` },
         timeout: 15000,
       }
     );
@@ -225,7 +268,7 @@ router.post('/snap-to-road', async (req, res) => {
       null,
       {
         params: { points, api_key: getApiKey() },
-        headers: { 'X-Request-Id': `trailmate-snap-${Date.now()}` },
+        headers: { 'X-Request-Id': `rouniity-snap-${Date.now()}` },
         timeout: 15000,
       }
     );

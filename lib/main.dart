@@ -17,9 +17,11 @@ import 'screens/group/create_group_screen.dart';
 import 'screens/group/join_group_screen.dart';
 import 'screens/group/group_lobby_screen.dart';
 import 'screens/navigation/live_navigation_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   await OlaTileProxy.start();
   
   final themeProvider = ThemeProvider();
@@ -62,28 +64,29 @@ class RoUniityApp extends StatelessWidget {
       onGenerateRoute: (settings) {
         switch (settings.name) {
           case '/':
-            return MaterialPageRoute(builder: (_) => SplashScreen());
+            return MaterialPageRoute(builder: (_) => SplashScreen(), settings: settings);
           case '/login':
-            return MaterialPageRoute(builder: (_) => LoginScreen());
+            return MaterialPageRoute(builder: (_) => LoginScreen(), settings: settings);
           case '/register':
-            return MaterialPageRoute(builder: (_) => RegisterScreen());
+            return MaterialPageRoute(builder: (_) => RegisterScreen(), settings: settings);
           case '/home':
-            return MaterialPageRoute(builder: (_) => HomeScreen());
+            return MaterialPageRoute(builder: (_) => HomeScreen(), settings: settings);
           case '/create-group':
-            return MaterialPageRoute(builder: (_) => CreateGroupScreen());
+            return MaterialPageRoute(builder: (_) => CreateGroupScreen(), settings: settings);
           case '/join-group':
-            return MaterialPageRoute(builder: (_) => JoinGroupScreen());
+            return MaterialPageRoute(builder: (_) => JoinGroupScreen(), settings: settings);
           case '/group-lobby':
             final groupId = settings.arguments as String;
-            return MaterialPageRoute(builder: (_) => GroupLobbyScreen(groupId: groupId));
+            return MaterialPageRoute(builder: (_) => GroupLobbyScreen(groupId: groupId), settings: settings);
           case '/live-navigation':
             final groupId = settings.arguments as String;
-            return MaterialPageRoute(builder: (_) => LiveNavigationScreen(groupId: groupId));
+            return MaterialPageRoute(builder: (_) => LiveNavigationScreen(groupId: groupId), settings: settings);
           default:
             return MaterialPageRoute(
               builder: (_) => Scaffold(
                 body: Center(child: Text('Page not found')),
               ),
+              settings: settings,
             );
         }
       },

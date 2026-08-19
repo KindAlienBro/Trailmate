@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "876773622898",
+    "project_id": "rouniity",
+    "storage_bucket": "rouniity.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:876773622898:android:c21ccec34049a8d3536eeb",
+        "android_client_info": {
+          "package_name": "com.vorniity.rouniity"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBpmJ5aMVCHLQudEdqFDvRnJMyTHfYkYD0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -14,6 +14,7 @@ class TripBottomSheet extends StatefulWidget {
   final String? currentUserId;
   final Function(String userId)? onMemberTap;
   final VoidCallback? onStepsTap;
+  final bool isLandscape;
 
   TripBottomSheet({
     super.key,
@@ -25,6 +26,7 @@ class TripBottomSheet extends StatefulWidget {
     this.currentUserId,
     this.onMemberTap,
     this.onStepsTap,
+    this.isLandscape = false,
   });
 
   @override
@@ -119,6 +121,10 @@ class _TripBottomSheetState extends State<TripBottomSheet>
     final memberCount = widget.memberPositions.length;
     final distribution = _getMemberDistribution();
 
+    if (widget.isLandscape) {
+      return _buildLandscapeCard(context, colors);
+    }
+
     return ClipRRect(
       borderRadius: const BorderRadius.only(
         topLeft: Radius.circular(28),
@@ -139,18 +145,22 @@ class _TripBottomSheetState extends State<TripBottomSheet>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Drag Handle
-                Padding(
-                  padding: const EdgeInsets.only(top: 10),
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.2),
-                      borderRadius: BorderRadius.circular(2),
+                if (!widget.isLandscape)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
+                if (!widget.isLandscape)
+                  const SizedBox(height: 16)
+                else
+                  const SizedBox(height: 24),
 
                 // ── 3-Column Stats Row ──
                 Padding(
@@ -425,6 +435,98 @@ class _TripBottomSheetState extends State<TripBottomSheet>
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLandscapeCard(BuildContext context, AppColorScheme colors) {
+    return Align(
+      alignment: Alignment.bottomLeft,
+      child: Container(
+        margin: const EdgeInsets.only(left: 16, bottom: 24, right: 16),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.25),
+              blurRadius: 15,
+              offset: const Offset(0, 5),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Close / End Navigation Button
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.grey.shade300, width: 1),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.close_rounded, color: Colors.black87),
+                onPressed: widget.onExit,
+                tooltip: 'End Navigation',
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+              ),
+            ),
+            const SizedBox(width: 16),
+
+            // ETA, Distance, Arrival Time
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    Text(
+                      _formatTime(widget.durationRemaining),
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFC62828), 
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    const Icon(Icons.eco_rounded, color: Color(0xFF2E7D32), size: 16), 
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${_formatDistance(widget.distanceRemaining)} • ${_calculateETA(widget.durationRemaining)}',
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Colors.black54,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+            
+            const SizedBox(width: 24),
+            
+            // Steps / Alternate Route Button
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.grey.shade300, width: 1),
+              ),
+              child: IconButton(
+                icon: const Icon(Icons.alt_route_rounded, color: Colors.black87),
+                onPressed: widget.onStepsTap,
+                tooltip: 'Route Steps',
+                padding: const EdgeInsets.all(8),
+                constraints: const BoxConstraints(minWidth: 40, minHeight: 40),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -67,6 +67,8 @@ dependencies:
   flutter_tts: ^4.2.0
   flutter_svg: ^2.0.10+1
   lottie: ^3.3.1
+  firebase_core: ^4.13.0
+  firebase_auth: ^6.5.7
 
 dev_dependencies:
   flutter_test:
@@ -93,7 +95,10 @@ flutter:
   assets:
     - assets/logo.png
     - assets/logo_dark.jpg
+    - assets/logo_light.png
+    - assets/logo_dark.png
     - assets/illustrations/
+    - assets/documents/
 
   # To add assets to your application, add an assets section, like this:
   # assets:

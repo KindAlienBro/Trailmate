@@ -115,6 +115,7 @@ class RouteModel {
   final PlaceModel destination;
   final List<WaypointModel> waypoints;
   final List<AIWaypoint> aiWaypoints;
+  final List<dynamic> steps;
   final String? polyline;
   final int distanceMeters;
   final int durationSeconds;
@@ -127,6 +128,7 @@ class RouteModel {
     required this.destination,
     this.waypoints = const [],
     this.aiWaypoints = const [],
+    this.steps = const [],
     this.polyline,
     this.distanceMeters = 0,
     this.durationSeconds = 0,
@@ -147,6 +149,7 @@ class RouteModel {
               ?.map((w) => AIWaypoint.fromJson(w))
               .toList() ??
           [],
+      steps: json['steps'] ?? [],
       polyline: json['polyline'],
       distanceMeters: json['distanceMeters'] ?? 0,
       durationSeconds: json['durationSeconds'] ?? 0,
@@ -371,6 +374,7 @@ class GroupProvider extends ChangeNotifier {
     String transportMode = 'driving',
     String routeMode = 'highway',
     List<AIWaypoint>? aiWaypoints,
+    List<dynamic>? steps,
     String? routeCharacter,
   }) async {
     _isLoading = true;
@@ -391,6 +395,7 @@ class GroupProvider extends ChangeNotifier {
       if (aiWaypoints != null && aiWaypoints.isNotEmpty) {
         body['aiWaypoints'] = aiWaypoints.map((w) => w.toJson()).toList();
       }
+      if (steps != null) body['steps'] = steps;
       if (routeCharacter != null) body['routeCharacter'] = routeCharacter;
 
       final response = await http.post(

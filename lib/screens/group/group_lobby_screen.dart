@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
 import '../../providers/auth_provider.dart';
@@ -91,24 +92,136 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
           return Stack(
             children: [
               // MAP BACKGROUND
-              Positioned.fill(
-                bottom: MediaQuery.of(context).size.height * 0.4,
-                child: _buildMapPreview(group, colors),
+              Builder(
+                builder: (context) {
+                  final size = MediaQuery.sizeOf(context);
+                  final isLandscape = size.width > size.height && size.width > 480;
+                  final panelWidth = isLandscape ? (size.width * 0.45 < 350.0 ? 350.0 : size.width * 0.45) : 0.0;
+                  return Positioned.fill(
+                    bottom: isLandscape ? 0 : size.height * 0.4,
+                    right: panelWidth,
+                    child: _buildMapPreview(group, colors),
+                  );
+                }
               ),
 
               // HEADER
-              Positioned(
-                top: 0, left: 0, right: 0,
-                child: _buildHeader(group, colors, theme),
+              Builder(
+                builder: (context) {
+                  final size = MediaQuery.sizeOf(context);
+                  final isLandscape = size.width > size.height && size.width > 480;
+                  final panelWidth = isLandscape ? (size.width * 0.45 < 350.0 ? 350.0 : size.width * 0.45) : 0.0;
+                  return Positioned(
+                    top: 0, left: 0, right: panelWidth,
+                    child: _buildHeader(group, colors, theme),
+                  );
+                }
               ),
 
               // DRAGGABLE BOTTOM SHEET LOBBY
-              _buildDraggableLobby(group, isLeader, colors, theme),
+              Builder(
+                builder: (context) {
+                  final size = MediaQuery.sizeOf(context);
+                  final isLandscape = size.width > size.height && size.width > 480;
+                  final panelWidth = isLandscape ? (size.width * 0.45 < 350.0 ? 350.0 : size.width * 0.45) : 0.0;
+                  if (isLandscape) {
+                    return Align(
+                      alignment: Alignment.centerRight,
+                      child: SizedBox(
+                        width: panelWidth,
+                        child: _buildDraggableLobby(group, isLeader, colors, theme),
+                      ),
+                    );
+                  }
+                  return _buildDraggableLobby(group, isLeader, colors, theme);
+                }
+              ),
             ],
           );
         },
       ),
     );
+  }
+
+  List<Marker> _buildManeuverMarkers(List<dynamic> steps) {
+    if (steps.isEmpty) return [];
+    
+    final markers = <Marker>[];
+    
+    // Skip the first and last step to avoid crowding origin/destination
+    for (int i = 1; i < steps.length - 1; i++) {
+      final step = steps[i];
+      final maneuver = (step['maneuver'] as String?)?.toLowerCase() ?? '';
+      final instruction = (step['instruction'] as String?) ?? (step['html_instructions'] as String?) ?? '';
+      
+      if (maneuver.isEmpty && instruction.isEmpty) continue;
+      
+      bool isSignificant = false;
+      IconData icon = Icons.turn_right_rounded;
+      String shortText = '';
+      
+      if (maneuver.contains('left') || instruction.toLowerCase().contains('turn left')) {
+        isSignificant = true; icon = Icons.turn_left_rounded; shortText = 'Turn left';
+      } else if (maneuver.contains('right') || instruction.toLowerCase().contains('turn right')) {
+        isSignificant = true; icon = Icons.turn_right_rounded; shortText = 'Turn right';
+      } else if (maneuver.contains('u-turn') || instruction.toLowerCase().contains('u-turn')) {
+        isSignificant = true; icon = Icons.u_turn_left_rounded; shortText = 'U-Turn';
+      } else if (maneuver.contains('roundabout') || instruction.toLowerCase().contains('roundabout')) {
+        isSignificant = true; icon = Icons.roundabout_right_rounded; shortText = 'Roundabout';
+      } else if (maneuver.contains('merge') || maneuver.contains('fork') || instruction.toLowerCase().contains('merge') || instruction.toLowerCase().contains('exit')) {
+        isSignificant = true; icon = Icons.merge_type_rounded; shortText = 'Transition';
+      }
+      
+      if (!isSignificant) continue;
+      
+      final startLoc = step['start_location'] ?? step['startLocation']; // Account for different case styles
+      if (startLoc == null || startLoc['lat'] == null || startLoc['lng'] == null) continue;
+      
+      final pt = LatLng((startLoc['lat'] as num).toDouble(), (startLoc['lng'] as num).toDouble());
+      
+      markers.add(
+        Marker(
+          point: pt,
+          width: 120, // Enough width for text
+          height: 40,
+          alignment: Alignment.topRight,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned(
+                bottom: -2,
+                left: 12,
+                child: Transform.rotate(
+                  angle: math.pi / 4,
+                  child: Container(
+                    width: 12, height: 12,
+                    color: const Color(0xFF0022AA),
+                  ),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0022AA),
+                  borderRadius: BorderRadius.circular(12),
+                  boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0, 3))],
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, color: Colors.white, size: 16),
+                    const SizedBox(width: 4),
+                    Text(shortText, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13, letterSpacing: 0.5)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    
+    return markers;
   }
 
   Widget _buildMapPreview(GroupModel group, AppColorScheme colors) {
@@ -149,10 +262,33 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
               Polyline(points: polyline, color: colors.accentPrimary, strokeWidth: 5.0),
             ],
           ),
+        if (group.route.steps.isNotEmpty)
+          MarkerLayer(
+            markers: _buildManeuverMarkers(group.route.steps),
+          ),
         MarkerLayer(
           markers: [
+            // AI Waypoints
+            if (group.route.hasRoute && group.route.aiWaypoints != null)
+              ...group.route.aiWaypoints!.map((wp) => Marker(
+                point: LatLng(wp.lat, wp.lng),
+                width: 40,
+                height: 40,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    shape: BoxShape.circle,
+                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+                    border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+                  ),
+                  child: Center(
+                    child: Text(wp.emoji, style: const TextStyle(fontSize: 16)),
+                  ),
+                ),
+              )),
+            // Origin & Dest
             if (origin != null)
-              Marker(point: origin, width: 40, height: 40, child: Icon(Icons.location_on, color: colors.accentSecondary, size: 40)),
+              Marker(point: origin, width: 40, height: 40, child: Icon(Icons.my_location, color: colors.accentSecondary, size: 30)),
             if (dest != null)
               Marker(point: dest, width: 40, height: 40, child: Icon(Icons.location_on, color: colors.accentDanger, size: 40)),
           ],
@@ -294,27 +430,84 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
 
   Widget _buildInviteCodeCard(GroupModel group, AppColorScheme colors, ThemeData theme) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      width: double.infinity,
+      padding: const EdgeInsets.all(32),
       decoration: BoxDecoration(
-        color: colors.surfaceColor.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(32),
-        border: Border.all(color: colors.borderColor),
+        color: colors.surfaceColor,
+        borderRadius: BorderRadius.circular(40),
+        boxShadow: [
+          BoxShadow(
+            color: colors.accentPrimary.withValues(alpha: 0.15),
+            blurRadius: 40,
+            spreadRadius: 10,
+          ),
+        ],
+        border: Border.all(
+          color: colors.accentPrimary.withValues(alpha: 0.3),
+          width: 2,
+        ),
       ),
       child: Column(
         children: [
-          Text('Invite Code', style: theme.textTheme.titleSmall?.copyWith(color: colors.textSecondary)),
-          const SizedBox(height: 12),
-          Text(
-            group.inviteCode,
-            style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w900, letterSpacing: 8, color: colors.textPrimary),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: colors.accentPrimary.withValues(alpha: 0.1),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.stars_rounded, color: colors.accentPrimary, size: 16),
+                const SizedBox(width: 8),
+                Text('YOUR INVITE CODE', style: theme.textTheme.labelMedium?.copyWith(color: colors.accentPrimary, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+              ],
+            ),
           ),
-          const SizedBox(height: 24),
-          Row(
+          const SizedBox(height: 32),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
+            children: group.inviteCode.split('').map((char) {
+              return Container(
+                width: 42,
+                height: 52,
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: colors.surfaceColor,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: colors.accentPrimary.withValues(alpha: 0.5), width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colors.accentPrimary.withValues(alpha: 0.1),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    )
+                  ],
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  char.toUpperCase(),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                    color: colors.accentPrimary,
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+          ),
+          const SizedBox(height: 40),
+          Row(
             children: [
-              _buildActionButton(Icons.copy_rounded, 'Copy', colors.accentPrimary, () => _copyInviteCode(group.inviteCode), colors),
+              Expanded(
+                child: _buildActionButton(Icons.copy_rounded, 'Copy', colors.textPrimary, () => _copyInviteCode(group.inviteCode), colors),
+              ),
               const SizedBox(width: 16),
-              _buildActionButton(Icons.share_rounded, 'Share', colors.accentExtra, () => _shareInviteCode(group.inviteCode, group.name), colors),
+              Expanded(
+                child: _buildActionButton(Icons.share_rounded, 'Share', colors.accentExtra, () => _shareInviteCode(group.inviteCode, group.name), colors),
+              ),
             ],
           ),
         ],
@@ -331,7 +524,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
         backgroundColor: color.withValues(alpha: 0.1),
         elevation: 0,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        padding: const EdgeInsets.symmetric(vertical: 16),
       ),
     );
   }

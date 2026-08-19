@@ -73,33 +73,33 @@ class AppColorScheme {
 
   // ==================== Theme Presets ====================
 
-  /// 🌙 Midnight Elegance (Default) — Soft graphite with deep blue and purple accents
+  /// 🌙 Midnight Elegance (Default) — Soft graphite with nature-inspired green accents
   static const dark = AppColorScheme(
     primaryBackground: Color(0xFF121212),
-    surfaceColor: Color(0xFF1E1E24),
-    cardColor: Color(0xFF232329),
-    borderColor: Color(0xFF33333B),
-    accentPrimary: Color(0xFF5E6AD2),
-    accentPrimaryDark: Color(0xFF4A55B2),
-    accentSecondary: Color(0xFF10B981),
-    accentSecondaryDark: Color(0xFF047857),
+    surfaceColor: Color(0xFF1A1D21),
+    cardColor: Color(0xFF22262B),
+    borderColor: Color(0xFF2E3338),
+    accentPrimary: Color(0xFF2E7D32),       // Dark green — matches target design
+    accentPrimaryDark: Color(0xFF1B5E20),   // Deeper green
+    accentSecondary: Color(0xFF43A047),     // Medium green
+    accentSecondaryDark: Color(0xFF2E7D32),
     accentWarning: Color(0xFFF59E0B),
     accentDanger: Color(0xFFEF4444),
     accentDangerDark: Color(0xFFB91C1C),
-    accentExtra: Color(0xFF8B5CF6),
-    textPrimary: Color(0xFFF9FAFB),
+    accentExtra: Color(0xFF66BB6A),          // Light green accent
+    textPrimary: Color(0xFFF5F5F5),
     textSecondary: Color(0xFF9CA3AF),
     textTertiary: Color(0xFF6B7280),
     textOnAccent: Color(0xFFFFFFFF),
     primaryGradient: LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
-      colors: [Color(0xFF1E1E24), Color(0xFF121212)],
+      colors: [Color(0xFF1A1D21), Color(0xFF121212)],
     ),
     accentGradient: LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
-      colors: [Color(0xFF8B5CF6), Color(0xFF5E6AD2)],
+      colors: [Color(0xFF43A047), Color(0xFF2E7D32)],
     ),
     dangerGradient: LinearGradient(
       begin: Alignment.topLeft,
@@ -109,28 +109,28 @@ class AppColorScheme {
     cardGradient: LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
-      colors: [Color(0xFF232329), Color(0xFF1E1E24)],
+      colors: [Color(0xFF22262B), Color(0xFF1A1D21)],
     ),
     brightness: Brightness.dark,
     name: 'Midnight',
-    description: 'Deep graphite with elegant soft accents',
+    description: 'Deep graphite with nature-inspired green accents',
     emoji: '🌙',
   );
 
-  /// ☀️ Clean Light — Crisp white, soft shadows, sharp contrast
+  /// ☀️ Clean Light — Crisp white, nature-inspired green accents
   static const light = AppColorScheme(
     primaryBackground: Color(0xFFF4F5F7),
     surfaceColor: Color(0xFFFFFFFF),
     cardColor: Color(0xFFFFFFFF),
     borderColor: Color(0xFFE2E4E9),
-    accentPrimary: Color(0xFF1D4ED8),
-    accentPrimaryDark: Color(0xFF1E3A8A),
-    accentSecondary: Color(0xFF10B981),
-    accentSecondaryDark: Color(0xFF047857),
+    accentPrimary: Color(0xFF2E7D32),       // Dark green — matches brand
+    accentPrimaryDark: Color(0xFF1B5E20),
+    accentSecondary: Color(0xFF43A047),
+    accentSecondaryDark: Color(0xFF2E7D32),
     accentWarning: Color(0xFFF59E0B),
     accentDanger: Color(0xFFEF4444),
-    accentDangerDark: Color(0xB91C1C),
-    accentExtra: Color(0xFF8B5CF6),
+    accentDangerDark: Color(0xFFB91C1C),
+    accentExtra: Color(0xFF66BB6A),
     textPrimary: Color(0xFF111827),
     textSecondary: Color(0xFF6B7280),
     textTertiary: Color(0xFF9CA3AF),
@@ -143,7 +143,7 @@ class AppColorScheme {
     accentGradient: LinearGradient(
       begin: Alignment.topLeft,
       end: Alignment.bottomRight,
-      colors: [Color(0xFF3B82F6), Color(0xFF1D4ED8)],
+      colors: [Color(0xFF43A047), Color(0xFF2E7D32)],
     ),
     dangerGradient: LinearGradient(
       begin: Alignment.topLeft,
@@ -157,7 +157,7 @@ class AppColorScheme {
     ),
     brightness: Brightness.light,
     name: 'Clean Light',
-    description: 'Crisp, high-contrast, minimalist',
+    description: 'Crisp, high-contrast, nature-inspired',
     emoji: '☀️',
   );
 

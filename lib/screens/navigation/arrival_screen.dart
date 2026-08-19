@@ -110,124 +110,155 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                   ),
                 ],
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Animated checkmark
-                  ScaleTransition(
-                    scale: _scaleAnim,
-                    child: Container(
-                      width: 90,
-                      height: 90,
-                      decoration: BoxDecoration(
-                        gradient: colors.accentGradient,
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: colors.accentSecondary.withValues(alpha: 0.4),
-                            blurRadius: 24,
-                            spreadRadius: 4,
+              child: Builder(
+                builder: (context) {
+                  final size = MediaQuery.sizeOf(context);
+                  final isLandscape = size.width > size.height && size.width > 480;
+
+                  Widget leftContent = Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Animated checkmark
+                      ScaleTransition(
+                        scale: _scaleAnim,
+                        child: Container(
+                          width: isLandscape ? 70 : 90,
+                          height: isLandscape ? 70 : 90,
+                          decoration: BoxDecoration(
+                            gradient: colors.accentGradient,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: colors.accentSecondary.withValues(alpha: 0.4),
+                                blurRadius: 24,
+                                spreadRadius: 4,
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                      child: Icon(
-                        Icons.check_rounded,
-                        color: Colors.white,
-                        size: 48,
-                      ),
-                    ),
-                  ),
-                  SizedBox(height: 28),
-
-                  // Title
-                  Text(
-                    "You've Arrived!",
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      letterSpacing: -0.5,
-                    ),
-                  ),
-                  SizedBox(height: 8),
-                  Text(
-                    'Trip completed',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white.withValues(alpha: 0.6),
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  SizedBox(height: 36),
-
-                  // Stats row
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.05),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        _buildStat(
-                          Icons.straighten_rounded,
-                          'Distance',
-                          _formatDistance(widget.totalDistance),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                        _buildStat(
-                          Icons.timer_rounded,
-                          'Duration',
-                          _formatDuration(widget.tripDuration),
-                        ),
-                        Container(
-                          width: 1,
-                          height: 40,
-                          color: Colors.white.withValues(alpha: 0.1),
-                        ),
-                        _buildStat(
-                          Icons.speed_rounded,
-                          'Avg Speed',
-                          _calculateAvgSpeed(widget.totalDistance, widget.tripDuration),
-                        ),
-                      ],
-                    ),
-                  ),
-                  SizedBox(height: 36),
-
-                  // Done button
-                  SizedBox(
-                    width: double.infinity,
-                    height: 56,
-                    child: Container(
-                      decoration: themedAccentButton(colors),
-                      child: ElevatedButton(
-                        onPressed: widget.onDone,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: Text(
-                          'Done',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
+                          child: Icon(
+                            Icons.check_rounded,
                             color: Colors.white,
+                            size: isLandscape ? 36 : 48,
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ],
+                      SizedBox(height: isLandscape ? 16 : 28),
+
+                      // Title
+                      Text(
+                        "You've Arrived!",
+                        style: TextStyle(
+                          fontSize: isLandscape ? 24 : 28,
+                          fontWeight: FontWeight.w900,
+                          color: Colors.white,
+                          letterSpacing: -0.5,
+                        ),
+                      ),
+                      SizedBox(height: 8),
+                      Text(
+                        'Trip completed',
+                        style: TextStyle(
+                          fontSize: 16,
+                          color: Colors.white.withValues(alpha: 0.6),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  );
+
+                  Widget rightContent = Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Stats row
+                      Container(
+                        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 16),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.05),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                        ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                          children: [
+                            _buildStat(
+                              Icons.straighten_rounded,
+                              'Distance',
+                              _formatDistance(widget.totalDistance),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 40,
+                              color: Colors.white.withValues(alpha: 0.1),
+                            ),
+                            _buildStat(
+                              Icons.timer_rounded,
+                              'Duration',
+                              _formatDuration(widget.tripDuration),
+                            ),
+                            Container(
+                              width: 1,
+                              height: 40,
+                              color: Colors.white.withValues(alpha: 0.1),
+                            ),
+                            _buildStat(
+                              Icons.speed_rounded,
+                              'Avg Speed',
+                              _calculateAvgSpeed(widget.totalDistance, widget.tripDuration),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: isLandscape ? 24 : 36),
+
+                      // Done button
+                      SizedBox(
+                        width: double.infinity,
+                        height: 56,
+                        child: Container(
+                          decoration: themedAccentButton(colors),
+                          child: ElevatedButton(
+                            onPressed: widget.onDone,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            child: Text(
+                              'Done',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+
+                  return SingleChildScrollView(
+                    child: isLandscape
+                        ? Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Expanded(child: leftContent),
+                              const SizedBox(width: 32),
+                              Expanded(child: rightContent),
+                            ],
+                          )
+                        : Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              leftContent,
+                              const SizedBox(height: 36),
+                              rightContent,
+                            ],
+                          ),
+                  );
+                }
               ),
             ),
           ),

@@ -557,23 +557,30 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
 
               // 2. Top Bar Layer (or Directions Banner if Driving)
               SafeArea(
-                child: Align(
-                  alignment: Alignment.topCenter,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_navState == NavigationState.active)
-                        navProvider.isRerouting
-                            ? ReroutingBanner()
-                            : DirectionsBanner(
-                                currentStep: navProvider.currentStep,
-                                upcomingStep: navProvider.upcomingStep,
-                                distanceToNextManeuver: navProvider.distanceToNextStep,
-                                detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
-                                distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
-                              )
-                      else
-                        Padding(
+                child: Builder(
+                  builder: (context) {
+                    final sz = MediaQuery.sizeOf(context);
+                    final isLand = sz.width > sz.height && sz.width > 480;
+                    
+                    if (_navState == NavigationState.active) {
+                      return Align(
+                        alignment: isLand ? Alignment.topLeft : Alignment.topCenter,
+                        child: navProvider.isRerouting
+                          ? ReroutingBanner()
+                          : DirectionsBanner(
+                              currentStep: navProvider.upcomingStep ?? navProvider.currentStep,
+                              upcomingStep: navProvider.nextUpcomingStep,
+                              distanceToNextManeuver: navProvider.distanceToNextStep,
+                              detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
+                              distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
+                              isLandscape: isLand,
+                            ),
+                      );
+                    }
+                    
+                    return Align(
+                      alignment: Alignment.topCenter,
+                      child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                           child: Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -612,9 +619,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                               ),
                             ],
                           ),
-                        ),
-                    ],
-                  ),
+                      ),
+                    );
+                  }
                 ),
               ),
 
@@ -670,86 +677,96 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   ),
                 ),
 
-              // 3. Floating Action Buttons (Compact Glassmorphism Pill)
-              SafeArea(
-                child: Align(
-                  alignment: const Alignment(1.0, -0.3), // Moved up from centerRight to avoid overlapping the places list
-                  child: Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(32),
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.35),
-                            borderRadius: BorderRadius.circular(32),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 1),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.2),
-                                blurRadius: 10,
-                                offset: Offset(0, 5),
+              // 3. Floating Action Buttons (Distinct Circular FABs matching Google Maps)
+              Builder(
+                builder: (context) {
+                  final size = MediaQuery.sizeOf(context);
+                  final isLandscape = size.width > size.height && size.width > 480;
+                  
+                  return SafeArea(
+                    child: Align(
+                      // In landscape, push it further down so it doesn't overlap top banners or right panels
+                      alignment: isLandscape ? const Alignment(1.0, 0.4) : const Alignment(1.0, -0.3),
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 16),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // SOS Button (Needs custom wrapping if we want it to match distinct FABs)
+                            Container(
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white,
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.15),
+                                    blurRadius: 8,
+                                    offset: const Offset(0, 3),
+                                  )
+                                ],
                               ),
-                            ],
-                          ),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // SOS Button (compact)
-                              SosButton(
+                              child: SosButton(
                                 isActive: navProvider.isSosActive && navProvider.sosUserId == currentUserId,
                                 onTrigger: _triggerSos,
                                 onCancel: _cancelSos,
                               ),
-                              SizedBox(height: 10),
-                              Container(height: 1, width: 24, color: Colors.white.withValues(alpha: 0.08)),
-                              SizedBox(height: 10),
-                              if (currentUserId != null && groupProvider.currentGroup?.isLeader(currentUserId) == true) ...[
-                                _CompactActionButton(
-                                  icon: Icons.group_add_rounded,
-                                  color: colors.accentPrimary,
-                                  onTap: _triggerRegroup,
-                                ),
-                                SizedBox(height: 10),
-                              ],
+                            ),
+                            SizedBox(height: 12),
+                            
+                            if (currentUserId != null && groupProvider.currentGroup?.isLeader(currentUserId) == true) ...[
                               _CompactActionButton(
-                                icon: Icons.local_cafe_rounded,
-                                color: colors.accentWarning,
-                                onTap: _triggerStopRequest,
-                              ),
-                              SizedBox(height: 10),
-                              Container(height: 1, width: 24, color: Colors.white.withValues(alpha: 0.08)),
-                              SizedBox(height: 10),
-                              // TTS Toggle (compact)
-                              _CompactActionButton(
-                                icon: navProvider.ttsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
-                                color: navProvider.ttsEnabled ? colors.accentSecondary : colors.textSecondary, 
-                                onTap: navProvider.toggleTts,
-                              ),
-                              SizedBox(height: 6),
-                              // Compass Orientation (compact)
-                              _CompactActionButton(
-                                icon: _mapOrientation == MapOrientation.headingUp ? Icons.explore_rounded : 
-                                    (_mapOrientation == MapOrientation.northUp ? Icons.explore_off_rounded : Icons.threesixty_rounded),
-                                color: colors.accentPrimary, 
-                                onTap: _toggleMapOrientation,
-                              ),
-                              SizedBox(height: 6),
-                              // Center on me (compact)
-                              _CompactActionButton(
-                                icon: Icons.my_location_rounded,
+                                icon: Icons.group_add_rounded,
                                 color: colors.accentPrimary,
-                                onTap: _centerOnMe,
+                                backgroundColor: Colors.white,
+                                hasShadow: true,
+                                onTap: _triggerRegroup,
                               ),
+                              SizedBox(height: 12),
                             ],
-                          ),
+                            _CompactActionButton(
+                              icon: Icons.local_cafe_rounded,
+                              color: colors.accentWarning,
+                              backgroundColor: Colors.white,
+                              hasShadow: true,
+                              onTap: _triggerStopRequest,
+                            ),
+                            SizedBox(height: 12),
+                            
+                            // TTS Toggle
+                            _CompactActionButton(
+                              icon: navProvider.ttsEnabled ? Icons.volume_up_rounded : Icons.volume_off_rounded,
+                              color: navProvider.ttsEnabled ? Colors.black87 : Colors.grey, 
+                              backgroundColor: Colors.white,
+                              hasShadow: true,
+                              onTap: navProvider.toggleTts,
+                            ),
+                            SizedBox(height: 12),
+                            
+                            // Compass Orientation
+                            _CompactActionButton(
+                              icon: _mapOrientation == MapOrientation.headingUp ? Icons.explore_rounded : 
+                                  (_mapOrientation == MapOrientation.northUp ? Icons.explore_off_rounded : Icons.threesixty_rounded),
+                              color: Colors.black87,
+                              backgroundColor: Colors.white,
+                              hasShadow: true,
+                              onTap: _toggleMapOrientation,
+                            ),
+                            SizedBox(height: 12),
+                            
+                            // Center on me
+                            _CompactActionButton(
+                              icon: Icons.my_location_rounded,
+                              color: _userPannedMap ? Colors.black87 : Colors.blueAccent,
+                              backgroundColor: Colors.white,
+                              hasShadow: true,
+                              onTap: _centerOnMe,
+                            ),
+                          ],
                         ),
                       ),
                     ),
-                  ),
-                ),
+                  );
+                }
               ),
 
               // Speedometer moved to top-left (section 2.8)
@@ -799,134 +816,263 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
 
               // 3.7 Quick Stops Bar (above bottom sheet during navigation)
               if (_navState == NavigationState.active)
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 230),
-                      child: QuickStopsBar(
-                        onCategoryTap: _onQuickStopCategoryTap,
-                        activeCategory: navProvider.activeStopCategory,
+                Builder(
+                  builder: (context) {
+                    final size = MediaQuery.sizeOf(context);
+                    final isLandscape = size.width > size.height && size.width > 480;
+                    return SafeArea(
+                      child: Align(
+                        alignment: isLandscape ? Alignment.bottomRight : Alignment.bottomCenter,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: isLandscape ? 16 : 230,
+                            left: isLandscape ? 380 : 0, // Avoid bottom sheet
+                          ),
+                          child: QuickStopsBar(
+                            onCategoryTap: _onQuickStopCategoryTap,
+                            activeCategory: navProvider.activeStopCategory,
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                  }
                 ),
 
               // 3.75 Nearby Places List (above quick stops bar)
               if (_navState == NavigationState.active && navProvider.activeStopCategory != null && navProvider.nearbyPlaces.isNotEmpty)
-                SafeArea(
-                  child: Align(
-                    alignment: Alignment.bottomCenter,
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 290), // Above the quick stops bar
-                      child: SizedBox(
-                        height: 110,
-                        child: ListView.builder(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: navProvider.nearbyPlaces.length,
-                          itemBuilder: (context, index) {
-                            final place = navProvider.nearbyPlaces[index];
-                            final isSelected = navProvider.selectedStop == place;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 12),
-                              child: _NearbyPlaceCard(
-                                place: place,
-                                isSelected: isSelected,
-                                onTap: () => _confirmAddStop(context, navProvider, place),
-                              ),
-                            );
-                          },
+                Builder(
+                  builder: (context) {
+                    final size = MediaQuery.sizeOf(context);
+                    final isLandscape = size.width > size.height && size.width > 480;
+                    return SafeArea(
+                      child: Align(
+                        alignment: isLandscape ? Alignment.bottomRight : Alignment.bottomCenter,
+                        child: Padding(
+                          padding: EdgeInsets.only(
+                            bottom: isLandscape ? 80 : 290, // Above the quick stops bar
+                            left: isLandscape ? 380 : 0,
+                          ),
+                          child: SizedBox(
+                            height: 110,
+                            child: ListView.builder(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(horizontal: 16),
+                              itemCount: navProvider.nearbyPlaces.length,
+                              itemBuilder: (context, index) {
+                                final place = navProvider.nearbyPlaces[index];
+                                final isSelected = navProvider.selectedStop == place;
+                                return Padding(
+                                  padding: const EdgeInsets.only(right: 12),
+                                  child: _NearbyPlaceCard(
+                                    place: place,
+                                    isSelected: isSelected,
+                                    onTap: () => _confirmAddStop(context, navProvider, place),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
+                    );
+                  }
                 ),
 
               // (Suggestion card moved to map popup bubbles in Component 6)
 
               // 4. Bottom Layer
               if (_navState == NavigationState.active)
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: TripBottomSheet(
-                    distanceRemaining: navProvider.remainingDistance > 0 ? navProvider.remainingDistance : navProvider.routeDistance,
-                    durationRemaining: navProvider.remainingDuration > 0 ? navProvider.remainingDuration : navProvider.routeDuration,
-                    currentSpeed: navProvider.memberPositions[currentUserId]?.speed ?? 0,
-                    memberPositions: navProvider.memberPositions,
-                    currentUserId: currentUserId,
-                    onExit: () {
-                      navProvider.stopNavigation();
-                      setState(() {
-                         _navState = NavigationState.browsing;
-                         _mapOrientation = MapOrientation.free;
-                      });
-                    },
-                    onMemberTap: (userId) {
-                      final pos = navProvider.memberPositions[userId];
-                      if (pos != null) {
-                        _mapController.move(pos.latLng, 16.0);
-                      }
-                    },
-                    onStepsTap: () => _showStepsSheet(context),
-                  ),
-                )
-              else if (_navState == NavigationState.preview)
-                Align(
-                  alignment: Alignment.bottomCenter,
-                  child: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.only(bottom: 24, left: 16, right: 16),
-                      child: Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: colors.cardColor.withValues(alpha: 0.9),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: colors.borderColor),
-                          boxShadow: [
-                            BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 10, offset: Offset(0, 5))
-                          ]
-                        ),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                Builder(
+                  builder: (context) {
+                    final size = MediaQuery.sizeOf(context);
+                    final isLandscape = size.width > size.height && size.width > 480;
+                    return Align(
+                      alignment: Alignment.bottomCenter,
+                      child: SafeArea(
+                        child: Container(
+                          width: double.infinity,
+                          child: SingleChildScrollView(
+                            physics: const NeverScrollableScrollPhysics(),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                _buildDashboardStat(Icons.directions_car_rounded, 'Distance', '${(navProvider.routeDistance / 1000).toStringAsFixed(1)} km'),
-                                Container(width: 1, height: 40, color: colors.borderColor),
-                                _buildDashboardStat(Icons.timer_rounded, 'ETA', '${(navProvider.routeDuration / 60).toStringAsFixed(0)} min'),
-                              ],
-                            ),
-                            SizedBox(height: 16),
-                            SizedBox(
-                              width: double.infinity,
-                              height: 56,
-                              child: Container(
-                                decoration: themedAccentButton(colors),
-                                child: ElevatedButton(
-                                  onPressed: _centerOnMe,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.transparent,
-                                    shadowColor: Colors.transparent,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                                  ),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 12.0),
                                   child: Row(
                                     mainAxisAlignment: MainAxisAlignment.center,
                                     children: [
-                                      Icon(Icons.navigation_rounded, color: Colors.white),
-                                      SizedBox(width: 8),
-                                      Text('Start Navigation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                                      _buildModeIcon('driving', Icons.directions_car_rounded, navProvider),
+                                      const SizedBox(width: 8),
+                                      _buildModeIcon('two_wheeler', Icons.two_wheeler_rounded, navProvider),
+                                      const SizedBox(width: 8),
+                                      _buildModeIcon('walking', Icons.directions_walk_rounded, navProvider),
+                                    ],
+                                  ),
+                                ),
+                                TripBottomSheet(
+                                  distanceRemaining: navProvider.remainingDistance > 0 ? navProvider.remainingDistance : navProvider.routeDistance,
+                                  durationRemaining: navProvider.remainingDuration > 0 ? navProvider.remainingDuration : navProvider.routeDuration,
+                                  currentSpeed: navProvider.memberPositions[currentUserId]?.speed ?? 0,
+                                  memberPositions: navProvider.memberPositions,
+                                  currentUserId: currentUserId,
+                                  isLandscape: isLandscape,
+                                  onExit: () {
+                                    navProvider.stopNavigation();
+                                    setState(() {
+                                       _navState = NavigationState.browsing;
+                                       _mapOrientation = MapOrientation.free;
+                                    });
+                                  },
+                                  onMemberTap: (userId) {
+                                    final pos = navProvider.memberPositions[userId];
+                                    if (pos != null) {
+                                      _mapController.move(pos.latLng, 16.0);
+                                    }
+                                  },
+                                  onStepsTap: () => _showStepsSheet(context),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+                )
+              else if (_navState == NavigationState.preview)
+                Builder(
+                  builder: (context) {
+                    final size = MediaQuery.sizeOf(context);
+                    final isLandscape = size.width > size.height && size.width > 480;
+                    return Stack(
+                      children: [
+                        // Start Navigation Card (Bottom Left in Landscape, Bottom Center in Portrait)
+                        Align(
+                          alignment: isLandscape ? Alignment.bottomLeft : Alignment.bottomCenter,
+                          child: SafeArea(
+                            child: SingleChildScrollView(
+                              child: Padding(
+                                padding: EdgeInsets.only(
+                                  bottom: 24,
+                                  left: 16,
+                                  right: isLandscape ? 0 : 16,
+                                ),
+                                child: Container(
+                                  width: isLandscape ? 350 : double.infinity,
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(20),
+                                    boxShadow: [
+                                      BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 15, offset: Offset(0, 5))
+                                    ]
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      // Mode Switcher
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          _buildModeIcon('driving', Icons.directions_car_rounded, navProvider),
+                                          const SizedBox(width: 8),
+                                          _buildModeIcon('two_wheeler', Icons.two_wheeler_rounded, navProvider),
+                                          const SizedBox(width: 8),
+                                          _buildModeIcon('walking', Icons.directions_walk_rounded, navProvider),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 16),
+                                      Row(
+                                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                                        children: [
+                                          _buildDashboardStat(Icons.directions_car_rounded, 'Distance', '${(navProvider.routeDistance / 1000).toStringAsFixed(1)} km'),
+                                          Container(width: 1, height: 40, color: Colors.grey.shade300),
+                                          _buildDashboardStat(Icons.timer_rounded, 'ETA', '${(navProvider.routeDuration / 60).toStringAsFixed(0)} min'),
+                                        ],
+                                      ),
+                                      SizedBox(height: 16),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        height: 56,
+                                        child: ElevatedButton(
+                                          onPressed: _centerOnMe,
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(0xFF1976D2), // Google Blue
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                                            elevation: 0,
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              Icon(Icons.navigation_rounded, color: Colors.white),
+                                              SizedBox(width: 8),
+                                              Text('Start Navigation', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
-                      ),
-                    ),
-                  ),
+                        
+                        // Location Details Card (Top Left in Landscape)
+                        if (isLandscape)
+                          Align(
+                            alignment: Alignment.topLeft,
+                            child: SafeArea(
+                              child: Padding(
+                                padding: const EdgeInsets.only(top: 16, left: 16),
+                                child: Container(
+                                  width: 350,
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(16),
+                                    boxShadow: [
+                                      BoxShadow(color: Colors.black.withValues(alpha: 0.15), blurRadius: 10, offset: Offset(0, 4))
+                                    ]
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Icon(Icons.my_location_rounded, color: Colors.blueAccent, size: 20),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text('Your Location', style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w500)),
+                                          ),
+                                        ],
+                                      ),
+                                      Padding(
+                                        padding: const EdgeInsets.only(left: 9),
+                                        child: Align(
+                                          alignment: Alignment.centerLeft,
+                                          child: Container(width: 2, height: 16, color: Colors.grey.shade300),
+                                        ),
+                                      ),
+                                      Row(
+                                        children: [
+                                          Icon(Icons.location_on_rounded, color: Colors.redAccent, size: 20),
+                                          SizedBox(width: 12),
+                                          Expanded(
+                                            child: Text('Destination', style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w500)),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  }
                 )
               else if (navProvider.nearbyPlaces.isNotEmpty)
                 Align(
@@ -997,6 +1143,39 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: colors.textPrimary),
         ),
       ],
+    );
+  }
+
+  Widget _buildModeIcon(String mode, IconData icon, NavigationProvider navProvider) {
+    final colors = AppColors.of(context);
+    final isSelected = navProvider.runtimeTransportMode == mode;
+    return GestureDetector(
+      onTap: () => navProvider.setTransportMode(mode),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeInOut,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? colors.accentPrimary : colors.cardColor,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(
+            color: isSelected ? Colors.transparent : colors.borderColor.withValues(alpha: 0.5),
+            width: 1,
+          ),
+          boxShadow: isSelected ? [
+            BoxShadow(
+              color: colors.accentPrimary.withValues(alpha: 0.4),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            )
+          ] : [],
+        ),
+        child: Icon(
+          icon,
+          size: 24,
+          color: isSelected ? Colors.white : colors.textSecondary,
+        ),
+      ),
     );
   }
 
@@ -1376,11 +1555,15 @@ class _CompactActionButton extends StatefulWidget {
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
+  final Color? backgroundColor;
+  final bool hasShadow;
 
   const _CompactActionButton({
     required this.icon,
     required this.color,
     required this.onTap,
+    this.backgroundColor,
+    this.hasShadow = false,
   });
 
   @override
@@ -1427,14 +1610,23 @@ class _CompactActionButtonState extends State<_CompactActionButton>
             child: Container(
               width: 40,
               height: 40,
-              decoration: const BoxDecoration(
-                color: Colors.transparent,
+              decoration: BoxDecoration(
+                color: widget.backgroundColor ?? Colors.transparent,
                 shape: BoxShape.circle,
+                boxShadow: widget.hasShadow
+                    ? [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.15),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        )
+                      ]
+                    : null,
               ),
               child: Icon(
                 widget.icon,
                 color: widget.color,
-                size: 22,
+                size: 24,
               ),
             ),
           ),

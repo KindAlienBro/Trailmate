@@ -16,6 +16,11 @@ const userSchema = new mongoose.Schema({
     trim: true,
     lowercase: true,
   },
+  phone: {
+    type: String,
+    required: true,
+    unique: true,
+  },
   passwordHash: {
     type: String,
     required: true,
@@ -23,10 +28,6 @@ const userSchema = new mongoose.Schema({
   avatar: {
     type: String,
     default: null, // URL to avatar image
-  },
-  phone: {
-    type: String,
-    default: null,
   },
 }, {
   timestamps: true,

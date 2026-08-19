@@ -10,7 +10,7 @@ class AppConstants {
   // Debug mode: Uses local network IP for physical device testing.
   // Make sure your PC is on 192.168.0.9 or update this IP.
   // Release mode: Uses Production VPS IP.
-  static const String _localServer = 'http://192.168.0.9:3000';
+  static const String _localServer = 'http://10.8.1.88:3000';
   static const String _prodServer = 'http://187.127.171.60:4000';
 
   static String get serverBaseUrl => kReleaseMode ? _prodServer : _localServer;

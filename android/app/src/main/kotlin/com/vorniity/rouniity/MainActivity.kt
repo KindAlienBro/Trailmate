@@ -1,4 +1,4 @@
-package com.example.rouniity
+package com.vorniity.rouniity
 
 import io.flutter.embedding.android.FlutterActivity
 

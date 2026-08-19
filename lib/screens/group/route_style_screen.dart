@@ -1,10 +1,8 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/app_colors.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
 import '../../services/ola_maps_service.dart';
@@ -32,214 +30,119 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   final OlaMapsService _mapsService = OlaMapsService();
   final MapController _mapController = MapController();
   
-  late PageController _carouselController;
-  int _currentCarouselIndex = 0;
-  
   String _selectedRouteMode = 'highway';
-  
-  int _currentStep = 0; // 0: Style, 1: Spot Selection, 2: Preview
-  bool _isPreviewLoading = false;
-  List<AIWaypoint>? _suggestedWaypoints;
-  List<AIWaypoint> _selectedWaypoints = [];
-  
-  List<dynamic>? _previewRoutes;
-  int _selectedRouteIndex = 0;
-  List<AIWaypoint>? _previewAiWaypoints;
-  String? _previewRouteCharacter;
+  bool _isLoading = true;
   bool _isCreating = false;
-
-  final List<Map<String, dynamic>> _routeModes = [
-    {
-      'id': 'highway',
-      'icon': Icons.speed_rounded,
-      'title': 'Highway',
-      'subtitle': 'Fastest route. No detours.',
-      'gradient': const LinearGradient(colors: [Color(0xFF1E88E5), Color(0xFF1565C0)]),
-    },
-    {
-      'id': 'adventure',
-      'icon': Icons.terrain_rounded,
-      'title': 'Adventure',
-      'subtitle': 'Scenic detours, ghats & hill routes.',
-      'gradient': const LinearGradient(colors: [Color(0xFF43A047), Color(0xFF2E7D32)]),
-    },
-    {
-      'id': 'full_adventure',
-      'icon': Icons.explore_rounded,
-      'title': 'Full Adventure',
-      'subtitle': 'Jungle trails, water crossings.',
-      'gradient': const LinearGradient(colors: [Color(0xFFF4511E), Color(0xFFE65100)]),
-    },
-    {
-      'id': 'cultural',
-      'icon': Icons.account_balance_rounded,
-      'title': 'Cultural',
-      'subtitle': 'Museums, ancient temples.',
-      'gradient': const LinearGradient(colors: [Color(0xFF8E24AA), Color(0xFF6A1B9A)]),
-    },
-    {
-      'id': 'foodie',
-      'icon': Icons.restaurant_rounded,
-      'title': 'Foodie',
-      'subtitle': 'Famous eateries, cafes.',
-      'gradient': const LinearGradient(colors: [Color(0xFFF4511E), Color(0xFFD84315)]),
-    },
-    {
-      'id': 'coastal',
-      'icon': Icons.beach_access_rounded,
-      'title': 'Coastal',
-      'subtitle': 'Beaches, scenic coastlines.',
-      'gradient': const LinearGradient(colors: [Color(0xFF00ACC1), Color(0xFF00838F)]),
-    },
-    {
-      'id': 'wildlife',
-      'icon': Icons.pets_rounded,
-      'title': 'Wildlife',
-      'subtitle': 'National parks, reserves.',
-      'gradient': const LinearGradient(colors: [Color(0xFF7CB342), Color(0xFF558B2F)]),
-    },
+  Set<int> _selectedPoiIndices = {};
+  int _selectedRouteIndex = 0;
+  
+  static const List<Color> _routeColors = [
+    Color(0xFF4CAF50), // Green (Main)
+    Color(0xFF2196F3), // Blue
+    Color(0xFFFF9800), // Orange
+    Color(0xFF9C27B0), // Purple
+    Color(0xFFE91E63), // Pink
   ];
+
+  Color _getRouteColor(int index) {
+    return _routeColors[index % _routeColors.length];
+  }
+
+  // Base route fetched on load
+  List<dynamic>? _baseRoutes;
+  int _baseDistance = 0;
+  int _baseDuration = 0;
+  final String _mainRoad = 'NH 48'; // Mock default or extracted from route
+
+  // Dynamic route based on selected style
+  List<dynamic>? _styleRoutes;
+  List<dynamic>? _styleWaypoints;
+
+  // Mock scenic spots to show on the map for the aesthetic
+  final List<LatLng> _mockScenicSpots = [];
 
   @override
   void initState() {
     super.initState();
-    _carouselController = PageController(viewportFraction: 0.65);
+    _generateMockSpots();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _fetchBaseRoute();
+    });
   }
 
-  @override
-  void dispose() {
-    _carouselController.dispose();
-    super.dispose();
+  void _generateMockSpots() {
+    // Generate some points between origin and destination roughly for visuals
+    final lat1 = widget.origin.lat!;
+    final lng1 = widget.origin.lng!;
+    final lat2 = widget.destination.lat!;
+    final lng2 = widget.destination.lng!;
+    
+    _mockScenicSpots.add(LatLng(lat1 + (lat2 - lat1) * 0.3, lng1 + (lng2 - lng1) * 0.3));
+    _mockScenicSpots.add(LatLng(lat1 + (lat2 - lat1) * 0.6, lng1 + (lng2 - lng1) * 0.6));
+    _mockScenicSpots.add(LatLng(lat1 + (lat2 - lat1) * 0.8, lng1 + (lng2 - lng1) * 0.8));
   }
 
-  Future<void> _fetchSuggestedSpots() async {
-    setState(() => _isPreviewLoading = true);
-    if(mounted) _mapsService.setToken(context.read<AuthProvider>().token ?? '');
-
+  Future<void> _fetchBaseRoute() async {
+    if (mounted) _mapsService.setToken(context.read<AuthProvider>().token ?? '');
     try {
-      if (_selectedRouteMode == 'highway') {
-        await _fetchFinalRoute([]);
-        return;
-      }
-
-      final dir = await _mapsService.suggestWaypoints(
+      final dir = await _mapsService.getDirections(
         originLat: widget.origin.lat!,
         originLng: widget.origin.lng!,
         destLat: widget.destination.lat!,
         destLng: widget.destination.lng!,
-        mode: _selectedRouteMode,
-        transportMode: widget.transportMode,
+        mode: widget.transportMode,
+        alternatives: true,
       );
-
-      final aiWaypointsJson = dir['aiWaypoints'] as List? ?? [];
-      final spots = aiWaypointsJson.map((w) => AIWaypoint.fromJson(Map<String, dynamic>.from(w))).toList();
-
-      setState(() {
-        _suggestedWaypoints = spots;
-        _selectedWaypoints = [];
-        _previewRouteCharacter = dir['routeCharacter'] as String?;
-        _currentStep = 1;
-        _isPreviewLoading = false;
-      });
-      _fitMapBoundsForSpots();
-    } catch (e) {
-      setState(() => _isPreviewLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load spots: $e')));
-      }
-    }
-  }
-
-  Future<void> _fetchFinalRoute(List<AIWaypoint> waypoints) async {
-    setState(() => _isPreviewLoading = true);
-    try {
-      final Map<String, dynamic> dir;
-      if (_selectedRouteMode != 'highway' && waypoints.isNotEmpty) {
-        dir = await _mapsService.getSmartRoute(
-          originLat: widget.origin.lat!,
-          originLng: widget.origin.lng!,
-          destLat: widget.destination.lat!,
-          destLng: widget.destination.lng!,
-          mode: _selectedRouteMode,
-          transportMode: widget.transportMode,
-          waypoints: waypoints.map((w) => w.toJson()).toList(),
-        );
-      } else {
-        dir = await _mapsService.getDirections(
-          originLat: widget.origin.lat!,
-          originLng: widget.origin.lng!,
-          destLat: widget.destination.lat!,
-          destLng: widget.destination.lng!,
-          mode: widget.transportMode,
-          alternatives: true,
-        );
-      }
-
+      
       if (dir['routes'] != null && (dir['routes'] as List).isNotEmpty) {
-        setState(() {
-          _previewRoutes = dir['routes'];
-          _previewAiWaypoints = waypoints;
-          _selectedRouteIndex = 0;
-          _currentStep = 2;
-          _isPreviewLoading = false;
-          _previewRouteCharacter = dir['routeCharacter'] as String?;
-        });
-        _fitMapBounds();
+        final route = dir['routes'][0];
+        final legs = route['legs'] as List;
+        
+        int totalDist = 0;
+        int totalDur = 0;
+        for (var leg in legs) {
+          totalDist += (leg['distance'] as num).toInt();
+          totalDur += (leg['duration'] as num).toInt();
+        }
+        
+        if (mounted) {
+          setState(() {
+            _baseRoutes = dir['routes'];
+            _baseDistance = totalDist;
+            _baseDuration = totalDur;
+            _isLoading = false;
+          });
+          _fitMapBounds();
+        }
       } else {
-        throw Exception('No routes found');
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() => _isPreviewLoading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to load route: $e')));
-      }
+      debugPrint('Error fetching base route: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  void _fitMapBoundsForSpots() {
-    if (_suggestedWaypoints == null || _suggestedWaypoints!.isEmpty) {
-      _fitMapBounds();
-      return;
-    }
-    
-    double minLat = widget.origin.lat!;
-    double maxLat = widget.origin.lat!;
-    double minLng = widget.origin.lng!;
-    double maxLng = widget.origin.lng!;
-
-    for (var spot in _suggestedWaypoints!) {
-      if (spot.lat < minLat) minLat = spot.lat;
-      if (spot.lat > maxLat) maxLat = spot.lat;
-      if (spot.lng < minLng) minLng = spot.lng;
-      if (spot.lng > maxLng) maxLng = spot.lng;
-    }
-
-    final bounds = LatLngBounds(LatLng(minLat, minLng), LatLng(maxLat, maxLng));
-    _mapController.fitCamera(
-      CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(50)),
-    );
-  }
-
-  void _fitMapBounds() {
-    if (_previewRoutes == null || _previewRoutes!.isEmpty) return;
-
+  void _fitMapBounds({List<dynamic>? routes}) {
+    final activeRoutes = routes ?? _styleRoutes ?? _baseRoutes;
+    if (activeRoutes == null || activeRoutes.isEmpty) return;
     try {
-      final currentRoute = _previewRoutes![_selectedRouteIndex];
-      final boundsMap = currentRoute['bounds'] as Map<String, dynamic>?;
-
-      if (boundsMap != null && boundsMap['southwest'] != null && boundsMap['northeast'] != null) {
-        final sw = boundsMap['southwest'] as Map<String, dynamic>;
-        final ne = boundsMap['northeast'] as Map<String, dynamic>;
-        
-        if (sw['lat'] != null && sw['lng'] != null && ne['lat'] != null && ne['lng'] != null) {
-          final bounds = LatLngBounds(
-            LatLng(sw['lat'] as double, sw['lng'] as double),
-            LatLng(ne['lat'] as double, ne['lng'] as double),
-          );
-
-          _mapController.fitCamera(
-            CameraFit.bounds(bounds: bounds, padding: const EdgeInsets.all(50)),
-          );
+      final index = (routes != null) ? 0 : _selectedRouteIndex;
+      if (index >= activeRoutes.length) return;
+      
+      final polylineStr = activeRoutes[index]['overview_polyline'] ?? activeRoutes[index]['geometry'];
+      if (polylineStr != null) {
+        final points = decodePolyline(polylineStr);
+        if (points.isNotEmpty) {
+          if (_styleWaypoints != null) {
+            _selectedPoiIndices = { for (int i = 0; i < _styleWaypoints!.length; i++) i };
+          }
+          final bounds = LatLngBounds.fromPoints([
+            ...points,
+            LatLng(widget.origin.lat!, widget.origin.lng!),
+            LatLng(widget.destination.lat!, widget.destination.lng!),
+          ]);
+          _animatedMapFitBounds(bounds);
         }
       }
     } catch (e) {
@@ -247,23 +150,79 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
     }
   }
 
+  void _animatedMapFitBounds(LatLngBounds bounds) {
+    // Determine a safe padding that won't crash flutter_map on small screens.
+    // The previous bottom padding of 420 was larger than the available vertical space on some devices,
+    // causing the map to lock up or ignore the camera fit command.
+    final screenHeight = MediaQuery.of(context).size.height;
+    final bottomPadding = screenHeight > 800 ? 300.0 : 150.0; // Safe dynamic padding
+
+    _mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds, 
+        padding: EdgeInsets.only(top: 100.0, left: 40.0, right: 40.0, bottom: bottomPadding),
+      ),
+    );
+  }
+
+  Future<void> _fetchStyleRoute(String mode) async {
+    setState(() {
+      _selectedRouteMode = mode;
+      _selectedRouteIndex = 0;
+      _isLoading = true;
+    });
+
+    try {
+      if (mode == 'highway') {
+        setState(() {
+          _styleRoutes = _baseRoutes;
+          _styleWaypoints = [];
+          _isLoading = false;
+        });
+        _fitMapBounds();
+        return;
+      }
+
+      final res = await _mapsService.getSmartRoute(
+        originLat: widget.origin.lat!,
+        originLng: widget.origin.lng!,
+        destLat: widget.destination.lat!,
+        destLng: widget.destination.lng!,
+        mode: mode,
+        transportMode: widget.transportMode,
+      );
+
+      if (mounted) {
+        setState(() {
+          _styleRoutes = res['routes'];
+          _styleWaypoints = res['aiWaypoints'];
+          _isLoading = false;
+        });
+        _fitMapBounds();
+      }
+    } catch (e) {
+      debugPrint('Error fetching style route: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   Future<void> _createTrip() async {
-    if (_previewRoutes == null || _previewRoutes!.isEmpty) return;
+    if (_baseRoutes == null || _baseRoutes!.isEmpty) return;
 
     setState(() => _isCreating = true);
 
     try {
-      final currentRoute = _previewRoutes![_selectedRouteIndex];
-      final legs = currentRoute['legs'] as List;
-      
-      int totalDistance = 0;
-      int totalDuration = 0;
-      for (var leg in legs) {
-        totalDistance += (leg['distance'] as num).toInt();
-        totalDuration += (leg['duration'] as num).toInt();
+      // In a real scenario, we might re-fetch the route if 'Adventure' or 'Full Adventure' is selected to get actual geometry.
+      // For this redesign, we'll use the base route geometry to proceed, as per the UI flow simplification.
+      final currentRoute = _styleRoutes != null && _styleRoutes!.isNotEmpty 
+          ? _styleRoutes![_selectedRouteIndex] 
+          : _baseRoutes![_selectedRouteIndex];
+      final polyline = currentRoute['overview_polyline'] ?? currentRoute['geometry'];
+
+      List<dynamic> steps = [];
+      if (currentRoute['legs'] != null && currentRoute['legs'].isNotEmpty) {
+        steps = currentRoute['legs'][0]['steps'] ?? [];
       }
-      
-      final polyline = currentRoute['overview_polyline'];
 
       final groupProvider = context.read<GroupProvider>();
       
@@ -274,10 +233,13 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
         transportMode: widget.transportMode,
         routeMode: _selectedRouteMode,
         polyline: polyline,
-        distanceMeters: totalDistance,
-        durationSeconds: totalDuration,
-        aiWaypoints: _previewAiWaypoints,
-        routeCharacter: _previewRouteCharacter,
+        steps: steps,
+        distanceMeters: _getCalculatedDistance(_selectedRouteMode),
+        durationSeconds: _getCalculatedDuration(_selectedRouteMode),
+        aiWaypoints: _styleWaypoints != null 
+            ? _styleWaypoints!.asMap().entries.where((e) => _selectedPoiIndices.contains(e.key)).map((e) => AIWaypoint.fromJson(e.value as Map<String, dynamic>)).toList() 
+            : [],
+        routeCharacter: 'Scenic',
       );
 
       if (mounted) {
@@ -291,709 +253,854 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     } finally {
       if (mounted) setState(() => _isCreating = false);
     }
   }
 
+  int _getCalculatedDistance(String mode) {
+    if (_baseDistance == 0) return 0;
+    if (['adventure', 'cultural', 'foodie', 'coastal', 'spiritual'].contains(mode)) return (_baseDistance * 1.05).round();
+    if (['full_adventure', 'wildlife'].contains(mode)) return (_baseDistance * 1.15).round();
+    return _baseDistance;
+  }
+
+  int _getCalculatedDuration(String mode) {
+    if (_baseDuration == 0) return 0;
+    if (['adventure', 'cultural', 'foodie', 'coastal', 'spiritual'].contains(mode)) return (_baseDuration * 1.15).round();
+    if (['full_adventure', 'wildlife'].contains(mode)) return (_baseDuration * 1.35).round();
+    return _baseDuration;
+  }
+
+  String _formatDistance(int meters) {
+    return '${(meters / 1000).toStringAsFixed(0)} km';
+  }
+
+  String _formatDuration(int seconds) {
+    final mins = seconds ~/ 60;
+    final h = mins ~/ 60;
+    final m = mins % 60;
+    if (h > 0) return '${h}h ${m}m';
+    return '${m}m';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: Container(
-          margin: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.8),
-            shape: BoxShape.circle,
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
-            onPressed: () {
-              if (_currentStep > 0) {
-                setState(() => _currentStep--);
-                if (_currentStep == 0) {
-                  // Wait
-                } else if (_currentStep == 1) {
-                  _fitMapBoundsForSpots();
-                }
-              } else {
-                Navigator.pop(context);
-              }
-            },
-          ),
-        ),
-      ),
       body: Stack(
         children: [
-          // Map Background
-          _buildMap(),
+          // 1. Map Layer
+          _buildMapLayer(),
 
-          // Glassmorphic Overlay Container
-          Align(
-            alignment: Alignment.bottomCenter,
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                child: Container(
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).scaffoldBackgroundColor.withOpacity(0.85),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(32)),
-                    border: Border(
-                      top: BorderSide(
-                        color: Colors.white.withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                  ),
-                  child: SafeArea(
-                    top: false,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 12),
-                        Container(
-                          width: 40,
-                          height: 4,
-                          decoration: BoxDecoration(
-                            color: Colors.grey.withOpacity(0.3),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                        
-                        if (_currentStep == 0) _buildStyleSelectionView(),
-                        if (_currentStep == 1) _buildSpotSelectionView(),
-                        if (_currentStep == 2) _buildRoutePreviewView(),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
+          // 2. Stats Floating Pill
+          _buildFloatingStatsPill(),
+
+          // 3. Bottom Sheet (Draggable or Fixed)
+          _buildBottomSheet(),
+          
+          // Back Button
+          Positioned(
+            top: MediaQuery.of(context).padding.top + 8,
+            left: 16,
+            child: _buildCircleButton(Icons.arrow_back_ios_new_rounded, () => Navigator.pop(context)),
           ),
+          
+          if (_isLoading)
+            Container(
+              color: Colors.white.withValues(alpha: 0.5),
+              child: const Center(child: CircularProgressIndicator()),
+            ),
         ],
       ),
     );
   }
-  
-  Widget _buildStyleSelectionView() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
+
+  Widget _buildMapLayer() {
+    return FlutterMap(
+      mapController: _mapController,
+      options: MapOptions(
+        initialCenter: LatLng(widget.origin.lat!, widget.origin.lng!),
+        initialZoom: 8.0,
+      ),
       children: [
-        Text(
-          'Choose Your Adventure',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.bold,
-                letterSpacing: -0.5,
-              ),
+        TileLayer(
+          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+          userAgentPackageName: 'com.vorniity.rouniity',
         ),
-        const SizedBox(height: 8),
-        Text(
-          'Select a route style for ${widget.tripName}',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
+        // Render multiple routes
+        if (_styleRoutes != null && _styleRoutes!.isNotEmpty)
+          PolylineLayer(
+            polylines: [
+              for (int i = 0; i < _styleRoutes!.length; i++)
+                if (i != _selectedRouteIndex)
+                  Polyline(
+                    points: decodePolyline(_styleRoutes![i]['overview_polyline'] ?? _styleRoutes![i]['geometry'] ?? ''),
+                    color: _getRouteColor(i).withValues(alpha: 0.6),
+                    strokeWidth: 4,
+                  ),
+              Polyline(
+                points: decodePolyline(_styleRoutes![_selectedRouteIndex]['overview_polyline'] ?? _styleRoutes![_selectedRouteIndex]['geometry'] ?? ''),
+                color: _getRouteColor(_selectedRouteIndex),
+                strokeWidth: 6,
               ),
-        ),
-        const SizedBox(height: 32),
-        SizedBox(
-          height: 220,
-          child: PageView.builder(
-            controller: _carouselController,
-            onPageChanged: (index) {
-              setState(() {
-                _currentCarouselIndex = index;
-                _selectedRouteMode = _routeModes[index]['id'];
-              });
-            },
-            itemCount: _routeModes.length,
-            itemBuilder: (context, index) {
-              return _buildStyleCard(index);
-            },
-          ),
-        ),
-        const SizedBox(height: 24),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 24.0),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _isPreviewLoading ? null : _fetchSuggestedSpots,
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(32),
-                ),
-              ),
-              child: _isPreviewLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text(
-                      'Find Spots',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-  
-  Widget _buildSpotSelectionView() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0),
-          child: Column(
-            children: [
-              Text(
-                'Customize Your Journey',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'Select spots you\'d like to visit',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.7),
-                    ),
+            ],
+          )
+        else if (_baseRoutes != null && _baseRoutes!.isNotEmpty)
+          PolylineLayer(
+            polylines: [
+              for (int i = 0; i < _baseRoutes!.length; i++)
+                if (i != _selectedRouteIndex)
+                  Polyline(
+                    points: decodePolyline(_baseRoutes![i]['overview_polyline'] ?? _baseRoutes![i]['geometry'] ?? ''),
+                    color: _getRouteColor(i).withValues(alpha: 0.6),
+                    strokeWidth: 4,
+                  ),
+              Polyline(
+                points: decodePolyline(_baseRoutes![_selectedRouteIndex]['overview_polyline'] ?? _baseRoutes![_selectedRouteIndex]['geometry'] ?? ''),
+                color: _getRouteColor(_selectedRouteIndex),
+                strokeWidth: 6,
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 24),
-        if (_suggestedWaypoints == null || _suggestedWaypoints!.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(24.0),
-            child: Text('No spots found for this route.'),
-          )
-        else
-          SizedBox(
-            height: 250,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _suggestedWaypoints!.length,
-              itemBuilder: (context, index) {
-                final spot = _suggestedWaypoints![index];
-                final isSelected = _selectedWaypoints.contains(spot);
-                return _buildSpotCard(spot, isSelected);
-              },
-            ),
-          ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _isPreviewLoading ? null : () => _fetchFinalRoute(_selectedWaypoints),
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(32),
-                ),
-              ),
-              child: _isPreviewLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : Text(
-                      'Generate Route (${_selectedWaypoints.length} spots)',
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        
+        // ETA Bubbles
+        MarkerLayer(
+          markers: [
+            ...(_styleRoutes ?? _baseRoutes ?? []).asMap().entries.map((e) {
+              final index = e.key;
+              final route = e.value;
+              final points = decodePolyline(route['overview_polyline'] ?? route['geometry'] ?? '');
+              if (points.isEmpty) return null;
+              
+              final isSelected = index == _selectedRouteIndex;
+              // Place bubble around 40% of the route to avoid overlap at the origin/destination
+              final midpointIndex = (points.length * 0.4).toInt();
+              final point = points[midpointIndex];
+              
+              int duration = 0;
+              if (route['legs'] != null && (route['legs'] as List).isNotEmpty) {
+                duration = (route['legs'][0]['duration'] as num).toInt();
+              }
+              final durationText = _formatDuration(duration);
+              final color = _getRouteColor(index);
+              
+              return Marker(
+                point: point,
+                width: 80,
+                height: 40,
+                alignment: Alignment.center,
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      _selectedRouteIndex = index;
+                      if (_styleRoutes == null && _baseRoutes != null) {
+                        _baseDuration = duration;
+                        _baseDistance = (_baseRoutes![index]['legs'][0]['distance'] as num).toInt();
+                      }
+                    });
+                    _fitMapBounds();
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: isSelected ? color : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: color, width: 2),
+                      boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
                     ),
+                    child: Center(
+                      child: Text(
+                        durationText,
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : color,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }).where((m) => m != null).cast<Marker>(),
+          ],
+        ),
+        
+        // POI Markers
+        MarkerLayer(
+          markers: [
+            if (_styleWaypoints != null)
+              ..._styleWaypoints!.asMap().entries.map((e) {
+                final index = e.key;
+                final wp = e.value;
+                final isSelected = _selectedPoiIndices.contains(index);
+                return Marker(
+                  point: LatLng(wp['lat'], wp['lng']),
+                  width: 32,
+                  height: 32,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 200),
+                    opacity: isSelected ? 1.0 : 0.4,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1E5B33), // Deep green matching the mockup
+                        shape: BoxShape.circle,
+                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+                        border: Border.all(color: Colors.white, width: 2),
+                      ),
+                      child: const Center(
+                        child: Icon(Icons.location_on, color: Colors.white, size: 16),
+                      ),
+                    ),
+                  ),
+                );
+              }),
+          ],
+        ),
+
+        // Origin / Destination Markers
+        MarkerLayer(
+          markers: [
+            Marker(
+              point: LatLng(widget.origin.lat!, widget.origin.lng!),
+              width: 160,
+              height: 100,
+              alignment: Alignment.topCenter,
+              child: _buildLocationMarker(widget.origin.name, isOrigin: true),
             ),
-          ),
+            Marker(
+              point: LatLng(widget.destination.lat!, widget.destination.lng!),
+              width: 160,
+              height: 100,
+              alignment: Alignment.topCenter,
+              child: _buildLocationMarker(widget.destination.name, isOrigin: false),
+            ),
+          ],
         ),
       ],
     );
   }
-  
-  Widget _buildSpotCard(AIWaypoint spot, bool isSelected) {
-    final theme = Theme.of(context);
-    return GestureDetector(
-      onTap: () {
-        setState(() {
-          if (isSelected) {
-            _selectedWaypoints.remove(spot);
-          } else {
-            _selectedWaypoints.add(spot);
-          }
-        });
-      },
-      onLongPress: () {
-        showModalBottomSheet(
-          context: context,
-          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-          builder: (context) => Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (spot.photoUrl != null && spot.photoUrl!.isNotEmpty)
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: Image.network(
-                      spot.photoUrl!.startsWith('//') ? 'https:${spot.photoUrl}' : spot.photoUrl!,
-                      height: 150,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => _buildPlaceholder(spot),
-                    ),
-                  )
-                else
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
-                    child: SizedBox(
-                      height: 150,
-                      width: double.infinity,
-                      child: _buildPlaceholder(spot),
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Text(spot.emoji, style: const TextStyle(fontSize: 32)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Text(
-                        spot.name,
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Text('Type: ${spot.type}', style: const TextStyle(color: Colors.grey, fontSize: 16)),
-                const SizedBox(height: 8),
-                Text(spot.reason, style: const TextStyle(fontSize: 16, height: 1.5)),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: () => Navigator.pop(context),
-                    child: const Text('Close'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 300),
-        width: 200,
-        margin: const EdgeInsets.symmetric(horizontal: 8),
+
+  Marker _buildScenicMarker(LatLng point, IconData icon) {
+    return Marker(
+      point: point,
+      width: 32,
+      height: 32,
+      child: Container(
         decoration: BoxDecoration(
-          color: theme.cardColor,
-          borderRadius: BorderRadius.circular(24),
-          border: Border.all(
-            color: isSelected ? theme.primaryColor : Colors.transparent,
-            width: 2,
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+          border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+        ),
+        child: Icon(icon, color: const Color(0xFF4CAF50), size: 16),
+      ),
+    );
+  }
+
+  Widget _buildLocationMarker(String name, {required bool isOrigin}) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFF333333),
+            borderRadius: BorderRadius.circular(8),
           ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
+          child: Text(
+            name.split(',')[0],
+            style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+          ),
+        ),
+        const SizedBox(height: 4),
+        isOrigin 
+            ? Container(
+                width: 16, height: 16,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xFF4CAF50), width: 4),
+                  boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                ),
+              )
+            : const Icon(Icons.location_on, color: Color(0xFF4CAF50), size: 28, shadows: [Shadow(color: Colors.black26, blurRadius: 4)]),
+      ],
+    );
+  }
+
+  Widget _buildCircleButton(IconData icon, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40, height: 40,
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 8)],
+        ),
+        child: Icon(icon, color: Colors.black87, size: 20),
+      ),
+    );
+  }
+
+  Widget _buildFloatingStatsPill() {
+    return Positioned(
+      bottom: 420, // Sit just above the bottom sheet
+      left: 16, right: 16,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 5))],
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            _buildStatItem(Icons.route_outlined, _formatDistance(_getCalculatedDistance(_selectedRouteMode)), 'Distance'),
+            _buildVerticalDivider(),
+            _buildStatItem(Icons.schedule, _formatDuration(_getCalculatedDuration(_selectedRouteMode)), 'Est. time'),
+            _buildVerticalDivider(),
+            _buildStatItem(Icons.edit_road, _mainRoad, 'Main route'),
+            _buildVerticalDivider(),
+            _buildStatItem(Icons.speed, 'Fastest', 'Less detours'),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildVerticalDivider() => Container(width: 1, height: 24, color: Colors.grey.shade300);
+
+  Widget _buildStatItem(IconData icon, String value, String label) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, color: const Color(0xFF4CAF50), size: 20),
+        const SizedBox(width: 8),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: Colors.black87)),
+            Text(label, style: const TextStyle(fontSize: 10, color: Colors.black54)),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildBottomSheet() {
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, -5))],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(height: 12),
+            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 16),
+            
+            // Multiple Routes Selector
+            Builder(builder: (context) {
+              final activeRoutes = (_styleRoutes != null && _styleRoutes!.isNotEmpty) ? _styleRoutes! : (_baseRoutes ?? []);
+              if (activeRoutes.length <= 1) return const SizedBox.shrink();
+              
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 16.0),
+                child: SizedBox(
+                  height: 40,
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    itemCount: activeRoutes.length,
+                    itemBuilder: (context, index) {
+                      final isSelected = index == _selectedRouteIndex;
+                      return GestureDetector(
+                        onTap: () {
+                          setState(() => _selectedRouteIndex = index);
+                          _fitMapBounds();
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.only(right: 12),
+                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected ? const Color(0xFF4CAF50) : Colors.grey.shade100,
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: isSelected ? const Color(0xFF4CAF50) : Colors.grey.shade300),
+                          ),
+                          child: Center(
+                            child: Text(
+                              'Route ${index + 1}',
+                              style: TextStyle(
+                                color: isSelected ? Colors.white : Colors.black87,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              );
+            }),
+            
+            // Title
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: Row(
+                children: [
+                  const Text('Choose your adventure', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
+                  const SizedBox(width: 8),
+                  Icon(Icons.landscape, color: Colors.green.shade800),
+                ],
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text('How do you want to experience this journey?', style: TextStyle(color: Colors.black54, fontSize: 13)),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Horizontal Style Cards
+            SizedBox(
+              height: 210,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                physics: const BouncingScrollPhysics(),
+                children: [
+                  _buildStyleOptionCard(
+                    id: 'highway',
+                    title: 'Highway',
+                    subtitle: 'Fast & efficient',
+                    desc: 'Fastest route via major highways.',
+                    icon: Icons.bolt,
+                    distance: _getCalculatedDistance('highway'),
+                    duration: _getCalculatedDuration('highway'),
+                    pillText: 'Few stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'adventure',
+                    title: 'Adventure',
+                    subtitle: 'Scenic & balanced',
+                    desc: 'Scenic roads with viewpoints & attractions.',
+                    icon: Icons.terrain,
+                    distance: _getCalculatedDistance('adventure'),
+                    duration: _getCalculatedDuration('adventure'),
+                    pillText: '+3 scenic stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'full_adventure',
+                    title: 'Full Adventure',
+                    subtitle: 'Explore the journey',
+                    desc: 'Maximum exploration with hidden gems & nature.',
+                    icon: Icons.park,
+                    distance: _getCalculatedDistance('full_adventure'),
+                    duration: _getCalculatedDuration('full_adventure'),
+                    pillText: '+7 recommended stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'cultural',
+                    title: 'Cultural',
+                    subtitle: 'Heritage sites',
+                    desc: 'Museums, ancient temples, monuments.',
+                    icon: Icons.account_balance,
+                    distance: _getCalculatedDistance('cultural'),
+                    duration: _getCalculatedDuration('cultural'),
+                    pillText: '+5 heritage stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'foodie',
+                    title: 'Foodie',
+                    subtitle: 'Culinary journey',
+                    desc: 'Famous eateries, cafes, bakeries.',
+                    icon: Icons.restaurant,
+                    distance: _getCalculatedDistance('foodie'),
+                    duration: _getCalculatedDuration('foodie'),
+                    pillText: '+4 food stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'coastal',
+                    title: 'Coastal',
+                    subtitle: 'Ocean views',
+                    desc: 'Beaches, marinas, scenic coastlines.',
+                    icon: Icons.beach_access,
+                    distance: _getCalculatedDistance('coastal'),
+                    duration: _getCalculatedDuration('coastal'),
+                    pillText: '+4 beach stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'spiritual',
+                    title: 'Spiritual',
+                    subtitle: 'Peaceful retreats',
+                    desc: 'Ashrams, monasteries, retreats.',
+                    icon: Icons.self_improvement,
+                    distance: _getCalculatedDistance('spiritual'),
+                    duration: _getCalculatedDuration('spiritual'),
+                    pillText: '+3 spiritual stops',
+                  ),
+                  _buildStyleOptionCard(
+                    id: 'wildlife',
+                    title: 'Wildlife',
+                    subtitle: 'Nature & safari',
+                    desc: 'National parks, reserves, deep forests.',
+                    icon: Icons.pets,
+                    distance: _getCalculatedDistance('wildlife'),
+                    duration: _getCalculatedDuration('wildlife'),
+                    pillText: '+2 wildlife stops',
+                  ),
+                ],
+              ),
+            ),
+            
+
+            if (_styleWaypoints != null && _styleWaypoints!.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              _buildTopPoisSection(),
+            ],
+
+            const SizedBox(height: 16),
+
+            // Apply Button
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: ElevatedButton(
+                  onPressed: _isCreating ? null : _createTrip,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF1E5B33), // Deep green from mockup
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(26)),
+                    elevation: 0,
+                  ),
+                  child: _isCreating
+                      ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            SizedBox(width: 24), // Balance spacing
+                            Text('Apply Route Style', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                            Icon(Icons.arrow_forward),
+                          ],
+                        ),
+                ),
+              ),
             ),
           ],
         ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                flex: 3,
+      ),
+    );
+  }
+
+  Widget _buildStyleOptionCard({
+    required String id,
+    required String title,
+    required String subtitle,
+    required String desc,
+    required IconData icon,
+    required int distance,
+    required int duration,
+    required String pillText,
+  }) {
+    final isSelected = _selectedRouteMode == id;
+    final baseColor = isSelected ? const Color(0xFFE8F3E8) : Colors.white;
+    final borderColor = isSelected ? const Color(0xFF4CAF50) : Colors.transparent;
+    
+    return GestureDetector(
+      onTap: () {
+        if (!isSelected) {
+          _fetchStyleRoute(id);
+        }
+      },
+      child: Container(
+        width: 155,
+        margin: const EdgeInsets.symmetric(horizontal: 8),
+        child: Column(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: baseColor,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: borderColor, width: 1.5),
+                  boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 4, offset: Offset(0, 2))],
+                ),
                 child: Stack(
-                  fit: StackFit.expand,
                   children: [
-                    if (spot.photoUrl != null && spot.photoUrl!.isNotEmpty)
-                      Image.network(
-                        spot.photoUrl!.startsWith('//') ? 'https:${spot.photoUrl}' : spot.photoUrl!,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => _buildPlaceholder(spot),
-                      )
-                    else
-                      _buildPlaceholder(spot),
-                    
-                    Positioned(
-                      top: 8,
-                      left: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withOpacity(0.5),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(spot.emoji, style: const TextStyle(fontSize: 14)),
-                      ),
-                    ),
-                    
-                    if (isSelected)
-                      Positioned(
-                        top: 8,
-                        right: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
                           decoration: BoxDecoration(
-                            color: theme.primaryColor,
+                            color: Colors.green.shade100,
                             shape: BoxShape.circle,
                           ),
+                          child: Icon(icon, color: Colors.green.shade800, size: 20),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(title, style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: isSelected ? Colors.green.shade800 : Colors.black87)),
+                        Text(subtitle, style: const TextStyle(fontSize: 10, color: Colors.black87)),
+                        const SizedBox(height: 6),
+                        Text(desc, style: const TextStyle(fontSize: 9, color: Colors.black54), maxLines: 2, overflow: TextOverflow.ellipsis),
+                        const Spacer(),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(_formatDistance(distance), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                const Text('Distance', style: TextStyle(fontSize: 9, color: Colors.black54)),
+                              ],
+                            ),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(_formatDuration(duration), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11)),
+                                const Text('Est. time', style: TextStyle(fontSize: 9, color: Colors.black54)),
+                              ],
+                            ),
+                          ],
+                        )
+                      ],
+                    ),
+                    if (isSelected)
+                      Positioned(
+                        top: 0, right: 0,
+                        child: Container(
+                          decoration: const BoxDecoration(color: Color(0xFF1E5B33), shape: BoxShape.circle),
                           child: const Icon(Icons.check, color: Colors.white, size: 16),
                         ),
                       ),
                   ],
                 ),
               ),
-              Expanded(
-                flex: 2,
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F4EC),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.eco_outlined, size: 10, color: Color(0xFF4CAF50)),
+                  const SizedBox(width: 4),
+                  Text(pillText, style: const TextStyle(fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFF4CAF50))),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTopPoisSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Text('Top POIs on this route', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Text('${_selectedPoiIndices.length}/${_styleWaypoints!.length}', style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  const Text('Handpicked places worth stopping for', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                ],
+              ),
+              Row(
+                children: [
+                  const Text('View all', style: TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w600)),
+                  const Icon(Icons.chevron_right, size: 18, color: Colors.black87),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 240,
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            itemCount: _styleWaypoints!.length,
+            itemBuilder: (context, index) {
+              final wp = _styleWaypoints![index];
+              final isSelected = _selectedPoiIndices.contains(index);
+              final String? photoUrl = wp['photoUrl'];
+              final String title = wp['name'] ?? 'POI';
+              final String desc = wp['reason'] ?? 'A notable spot to visit.';
+              final String time = wp['timeFromOrigin'] != null ? '${wp['timeFromOrigin']} min' : '—';
+              final String dist = wp['distanceFromOrigin'] != null ? '${wp['distanceFromOrigin']} km' : '—';
+              
+              return GestureDetector(
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedPoiIndices.remove(index);
+                    } else {
+                      _selectedPoiIndices.add(index);
+                    }
+                  });
+                },
+                child: Container(
+                  width: 180,
+                  margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 8, offset: const Offset(0, 4)),
+                    ],
+                    border: Border.all(color: Colors.grey.shade200),
+                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        spot.name,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      // Top Image Area
+                      SizedBox(
+                        height: 100,
+                        width: double.infinity,
+                        child: Stack(
+                          children: [
+                            ClipRRect(
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(15)),
+                              child: photoUrl != null
+                                  ? Image.network(
+                                      photoUrl,
+                                      width: double.infinity,
+                                      height: 100,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (context, error, stackTrace) => _buildPlaceholderImage(),
+                                    )
+                                  : _buildPlaceholderImage(),
+                            ),
+                            // Selection Checkbox
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: AnimatedContainer(
+                                duration: const Duration(milliseconds: 200),
+                                width: 24,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  color: isSelected ? const Color(0xFF1E5B33) : Colors.white,
+                                  borderRadius: BorderRadius.circular(isSelected ? 12 : 6),
+                                  border: Border.all(
+                                    color: isSelected ? const Color(0xFF1E5B33) : Colors.black87,
+                                    width: isSelected ? 0 : 1.5,
+                                  ),
+                                ),
+                                child: isSelected
+                                    ? const Icon(Icons.check, size: 16, color: Colors.white)
+                                    : null,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 4),
+                      // Details Area
                       Expanded(
-                        child: Text(
-                          spot.reason,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.textTheme.bodyMedium?.color?.withOpacity(0.7),
+                        child: Padding(
+                          padding: const EdgeInsets.all(12.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('📍', style: TextStyle(fontSize: 14)), // red pin replacement
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.black87),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Expanded(
+                                child: Text(
+                                  desc,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Row(
+                                children: [
+                                  const Icon(Icons.schedule, size: 12, color: Colors.black54),
+                                  const SizedBox(width: 4),
+                                  Text(time, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                                  const Spacer(),
+                                  const Icon(Icons.route_outlined, size: 12, color: Colors.black54),
+                                  const SizedBox(width: 4),
+                                  Text(dist, style: const TextStyle(fontSize: 11, color: Colors.black54)),
+                                ],
+                              ),
+                            ],
                           ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-  
-  Widget _buildPlaceholder(AIWaypoint spot) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [Color(0xFF4CA1AF), Color(0xFFC4E0E5)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
-      child: Center(
-        child: Icon(Icons.landscape, color: Colors.white54, size: 40),
-      ),
-    );
-  }
-  
-  Widget _buildRoutePreviewView() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_previewRouteCharacter != null)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: Text(
-              _previewRouteCharacter!,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w500,
-                  ),
-            ),
-          ),
-        if (_previewRoutes != null && _previewRoutes!.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-            child: _buildRouteStats(),
-          ),
-        Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _isCreating || _isPreviewLoading ? null : _createTrip,
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(32),
-                ),
-              ),
-              child: _isCreating
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text(
-                      'Confirm and Create Trip',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildMap() {
-    return FlutterMap(
-      mapController: _mapController,
-      options: MapOptions(
-        initialCenter: LatLng(widget.origin.lat!, widget.origin.lng!),
-        initialZoom: 12.0,
-      ),
-      children: [
-        TileLayer(
-          urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.rouniity',
-        ),
-        if (_previewRoutes != null && _previewRoutes!.isNotEmpty && _currentStep == 2)
-          PolylineLayer(
-            polylines: [
-              Polyline(
-                points: decodePolyline(_previewRoutes![_selectedRouteIndex]['overview_polyline'] ?? _previewRoutes![_selectedRouteIndex]['geometry'] ?? ''),
-                color: Theme.of(context).primaryColor,
-                strokeWidth: 5,
-              ),
-            ],
-          ),
-        MarkerLayer(
-          markers: [
-            Marker(
-              point: LatLng(widget.origin.lat!, widget.origin.lng!),
-              width: 32,
-              height: 32,
-              child: _buildLocationMarker(Icons.my_location, Colors.blue),
-            ),
-            Marker(
-              point: LatLng(widget.destination.lat!, widget.destination.lng!),
-              width: 32,
-              height: 32,
-              child: _buildLocationMarker(Icons.location_on, Colors.red),
-            ),
-          ],
-        ),
-        if (_currentStep == 1 && _suggestedWaypoints != null)
-          MarkerLayer(
-            markers: _suggestedWaypoints!.map((wp) {
-              final isSelected = _selectedWaypoints.contains(wp);
-              return Marker(
-                point: LatLng(wp.lat, wp.lng),
-                width: isSelected ? 48 : 36,
-                height: isSelected ? 48 : 36,
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 300),
-                  decoration: BoxDecoration(
-                    color: isSelected ? Theme.of(context).primaryColor : Colors.white,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 2),
-                    boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6)],
-                  ),
-                  child: Center(
-                    child: Text(
-                      wp.emoji,
-                      style: TextStyle(fontSize: isSelected ? 22 : 16),
-                    ),
-                  ),
-                ),
               );
-            }).toList(),
-          )
-        else if (_previewAiWaypoints != null && _currentStep == 2)
-          MarkerLayer(
-            markers: _previewAiWaypoints!.map((wp) {
-              return Marker(
-                point: LatLng(wp.lat, wp.lng),
-                width: 40,
-                height: 40,
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 6)],
-                  ),
-                  child: Center(child: Text(wp.emoji, style: const TextStyle(fontSize: 18))),
-                ),
-              );
-            }).toList(),
+            },
           ),
+        ),
       ],
     );
   }
 
-  Widget _buildLocationMarker(IconData icon, Color color) {
+  Widget _buildPlaceholderImage() {
     return Container(
-      decoration: BoxDecoration(
-        color: color,
-        shape: BoxShape.circle,
-        border: Border.all(color: Colors.white, width: 3),
-        boxShadow: [
-          BoxShadow(
-            color: color.withOpacity(0.5),
-            blurRadius: 8,
-            spreadRadius: 2,
-          )
-        ],
-      ),
+      color: Colors.green.shade100,
+      width: double.infinity,
+      height: double.infinity,
       child: Center(
-        child: Icon(icon, color: Colors.white, size: 16),
+        child: Icon(Icons.landscape, size: 40, color: Colors.green.shade300),
       ),
-    );
-  }
-
-  Widget _buildStyleCard(int index) {
-    final mode = _routeModes[index];
-    final isSelected = _currentCarouselIndex == index;
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      margin: EdgeInsets.only(
-        left: index == 0 ? 0 : 8,
-        right: index == _routeModes.length - 1 ? 0 : 8,
-        top: isSelected ? 0 : 20,
-        bottom: isSelected ? 0 : 20,
-      ),
-      decoration: BoxDecoration(
-        gradient: mode['gradient'],
-        borderRadius: BorderRadius.circular(32),
-        boxShadow: [
-          if (isSelected)
-            BoxShadow(
-              color: (mode['gradient'] as LinearGradient).colors.first.withOpacity(0.4),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            )
-        ],
-      ),
-      child: Stack(
-        children: [
-          // Background pattern/icon
-          Positioned(
-            right: -20,
-            bottom: -20,
-            child: Icon(
-              mode['icon'],
-              size: 140,
-              color: Colors.white.withOpacity(0.1),
-            ),
-          ),
-          
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Icon(mode['icon'], color: Colors.white, size: 32),
-                ),
-                const Spacer(),
-                Text(
-                  mode['title'],
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  mode['subtitle'],
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.9),
-                    fontSize: 14,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRouteStats() {
-    final route = _previewRoutes![_selectedRouteIndex];
-    final legs = route['legs'] as List;
-    
-    int totalDistanceMeters = 0;
-    int totalDurationSeconds = 0;
-    for (var leg in legs) {
-      totalDistanceMeters += (leg['distance'] as num).toInt();
-      totalDurationSeconds += (leg['duration'] as num).toInt();
-    }
-    
-    final distanceText = (totalDistanceMeters / 1000).toStringAsFixed(1) + ' km';
-    final durationMins = totalDurationSeconds ~/ 60;
-    
-    final hours = durationMins ~/ 60;
-    final mins = durationMins % 60;
-    final durationText = hours > 0 ? '${hours}h ${mins}m' : '${mins}m';
-
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Theme.of(context).cardColor,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Colors.grey.withOpacity(0.1),
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
-        children: [
-          _buildStatColumn(Icons.route_rounded, 'Distance', distanceText),
-          Container(width: 1, height: 40, color: Colors.grey.withOpacity(0.2)),
-          _buildStatColumn(Icons.timer_rounded, 'Duration', durationText),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildStatColumn(IconData icon, String label, String value) {
-    return Column(
-      children: [
-        Icon(icon, color: Theme.of(context).primaryColor),
-        const SizedBox(height: 8),
-        Text(
-          value,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
-          ),
-        ),
-        Text(
-          label,
-          style: TextStyle(
-            color: Theme.of(context).textTheme.bodyMedium?.color?.withOpacity(0.6),
-            fontSize: 12,
-          ),
-        ),
-      ],
     );
   }
 }

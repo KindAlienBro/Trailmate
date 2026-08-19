@@ -40,6 +40,7 @@ router.post('/', async (req, res) => {
         destination: destination || {},
         waypoints: waypoints || [],
         aiWaypoints: aiWaypoints || [],
+        steps: req.body.steps || [],
         routeCharacter: routeCharacter || '',
         polyline: polyline || null,
         distanceMeters: distanceMeters || 0,

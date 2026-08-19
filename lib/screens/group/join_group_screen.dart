@@ -1,10 +1,11 @@
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
 import '../../core/app_colors.dart';
-import '../../core/theme.dart';
 
 class JoinGroupScreen extends StatefulWidget {
   const JoinGroupScreen({super.key});
@@ -13,192 +14,296 @@ class JoinGroupScreen extends StatefulWidget {
   State<JoinGroupScreen> createState() => _JoinGroupScreenState();
 }
 
-class _JoinGroupScreenState extends State<JoinGroupScreen> {
+class _JoinGroupScreenState extends State<JoinGroupScreen> with SingleTickerProviderStateMixin {
   final _codeController = TextEditingController();
-  final _codeFocus = FocusNode();
+  final FocusNode _focusNode = FocusNode();
+  bool _isJoining = false;
+  late AnimationController _animController;
+  late Animation<double> _fadeAnimation;
+  late Animation<Offset> _slideAnimation;
 
   @override
   void initState() {
     super.initState();
-    _codeFocus.addListener(() => setState(() {}));
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1000),
+    );
+    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+    );
+    _slideAnimation = Tween<Offset>(begin: const Offset(0, 0.05), end: Offset.zero).animate(
+      CurvedAnimation(parent: _animController, curve: Curves.easeOutCubic),
+    );
+    _animController.forward();
+    
+    // Auto-focus the hidden text field
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_focusNode);
+    });
   }
 
   @override
   void dispose() {
     _codeController.dispose();
-    _codeFocus.dispose();
+    _focusNode.dispose();
+    _animController.dispose();
     super.dispose();
   }
 
   Future<void> _handleJoin() async {
     final code = _codeController.text.trim();
-    if (code.isEmpty) return;
+    if (code.length < 6) return; // Wait until fully typed
 
     FocusScope.of(context).unfocus();
+    setState(() => _isJoining = true);
 
-    final groupProvider = context.read<GroupProvider>();
-    groupProvider.setToken(context.read<AuthProvider>().token);
+    try {
+      final groupProvider = context.read<GroupProvider>();
+      groupProvider.setToken(context.read<AuthProvider>().token);
 
-    final group = await groupProvider.joinGroup(code);
+      final group = await groupProvider.joinGroup(code);
 
-    if (group != null && mounted) {
-      Navigator.of(context).pushReplacementNamed('/group-lobby', arguments: group.id);
+      if (group != null && mounted) {
+        Navigator.of(context).pushReplacementNamed('/group-lobby', arguments: group.id);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isJoining = false);
+      }
     }
+  }
+
+  Widget _buildSegment(String char, bool isActive, AppColorScheme colors) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+      width: 46,
+      height: 56,
+      margin: const EdgeInsets.symmetric(horizontal: 4),
+      decoration: BoxDecoration(
+        color: isActive ? colors.surfaceColor : colors.surfaceColor.withValues(alpha: 0.5),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isActive ? colors.accentPrimary : colors.borderColor.withValues(alpha: 0.3),
+          width: isActive ? 2.5 : 1.5,
+        ),
+        boxShadow: isActive
+            ? [
+                BoxShadow(
+                  color: colors.accentPrimary.withValues(alpha: 0.2),
+                  blurRadius: 12,
+                  spreadRadius: 2,
+                )
+              ]
+            : [],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        char,
+        style: TextStyle(
+          fontSize: 26,
+          fontWeight: FontWeight.w800,
+          color: isActive ? colors.accentPrimary : colors.textPrimary,
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    final theme = Theme.of(context);
-    final isFocused = _codeFocus.hasFocus;
+    final size = MediaQuery.sizeOf(context);
 
     return Scaffold(
-      backgroundColor: colors.primaryBackground,
+      backgroundColor: colors.primaryBackground, // Deep background
+      extendBodyBehindAppBar: true,
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        iconTheme: IconThemeData(color: colors.textPrimary),
+      ),
       body: Stack(
-        fit: StackFit.expand,
         children: [
-          // Background Gradient Base
-          Container(decoration: BoxDecoration(gradient: colors.primaryGradient)),
-          
-          // Organic Blurry Orbs
-          Positioned(
-            top: -100, right: -50,
-            child: _buildBlurOrb(colors.accentExtra, 350),
-          ),
-          Positioned(
-            bottom: -50, left: -100,
-            child: _buildBlurOrb(colors.accentPrimary, 400),
-          ),
-
-          SafeArea(
-            child: Column(
-              children: [
-                // Header
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  child: Row(
-                    children: [
-                      IconButton(
-                        onPressed: () => Navigator.pop(context),
-                        icon: Icon(Icons.arrow_back_rounded, color: colors.textPrimary),
-                      ),
-                      Expanded(
-                        child: Text(
-                          'Join Trip',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700, color: colors.textPrimary),
-                        ),
-                      ),
-                      const SizedBox(width: 48),
-                    ],
-                  ),
+          // Dynamic gradient background
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    colors.primaryBackground,
+                    colors.accentPrimary.withValues(alpha: 0.05),
+                    colors.primaryBackground,
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
                 ),
+              ),
+            ),
+          ),
+          
+          // Subtle glowing orb top right
+          Positioned(
+            top: -100,
+            right: -100,
+            child: Container(
+              width: 300,
+              height: 300,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: colors.accentPrimary.withValues(alpha: 0.1),
+                backgroundBlendMode: BlendMode.screen,
+              ),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 80, sigmaY: 80),
+                child: const SizedBox(),
+              ),
+            ),
+          ),
 
-                Expanded(
+          Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: FadeTransition(
+                opacity: _fadeAnimation,
+                child: SlideTransition(
+                  position: _slideAnimation,
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 48),
-                    child: Column(
-                      children: [
-                        // Hero Icon
-                        Container(
-                          width: 88, height: 88,
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(32),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+                        child: Container(
+                          padding: const EdgeInsets.all(36),
                           decoration: BoxDecoration(
-                            color: colors.accentExtra.withValues(alpha: 0.15),
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(Icons.qr_code_rounded, size: 40, color: colors.accentExtra),
-                        ),
-                        const SizedBox(height: 32),
-                        
-                        Text(
-                          'Enter Invite Code',
-                          style: theme.textTheme.displaySmall?.copyWith(fontWeight: FontWeight.w800, color: colors.textPrimary),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'Ask your trip leader for the 6-character code',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyLarge?.copyWith(color: colors.textSecondary),
-                        ),
-                        const SizedBox(height: 56),
-
-                        // Input Container
-                        Container(
-                          padding: const EdgeInsets.all(32),
-                          decoration: BoxDecoration(
-                            color: colors.surfaceColor.withValues(alpha: 0.4),
-                            borderRadius: BorderRadius.circular(40),
-                            border: Border.all(color: colors.borderColor.withValues(alpha: 0.3)),
+                            color: colors.cardColor.withValues(alpha: 0.8),
+                            borderRadius: BorderRadius.circular(32),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 1.5),
                             boxShadow: [
-                              BoxShadow(color: Colors.black.withValues(alpha: 0.1), blurRadius: 20, spreadRadius: 5),
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.1),
+                                blurRadius: 30,
+                                offset: const Offset(0, 10),
+                              ),
                             ],
                           ),
                           child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              AnimatedContainer(
-                                duration: const Duration(milliseconds: 300),
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(32),
-                                  boxShadow: isFocused ? [
-                                    BoxShadow(color: colors.accentExtra.withValues(alpha: 0.2), blurRadius: 20, spreadRadius: 2)
-                                  ] : [],
-                                ),
-                                child: TextFormField(
-                                  controller: _codeController,
-                                  focusNode: _codeFocus,
-                                  textAlign: TextAlign.center,
-                                  textCapitalization: TextCapitalization.characters,
-                                  maxLength: 6,
-                                  style: theme.textTheme.headlineMedium?.copyWith(
-                                    color: colors.textPrimary,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 16,
+                              // Floating Icon
+                              TweenAnimationBuilder<double>(
+                                tween: Tween(begin: 0.0, end: 1.0),
+                                duration: const Duration(seconds: 2),
+                                curve: Curves.easeInOutSine,
+                                builder: (context, val, child) {
+                                  return Transform.translate(
+                                    offset: Offset(0, -5.0 * math.sin(val * 3.14159 * 2)), // Float effect
+                                    child: child,
+                                  );
+                                },
+                                child: Container(
+                                  width: 80,
+                                  height: 80,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: colors.accentPrimary.withValues(alpha: 0.1),
+                                    border: Border.all(color: colors.accentPrimary.withValues(alpha: 0.3)),
                                   ),
-                                  decoration: InputDecoration(
-                                    counterText: '',
-                                    hintText: '------',
-                                    hintStyle: theme.textTheme.headlineMedium?.copyWith(
-                                      color: colors.textTertiary.withValues(alpha: 0.4),
-                                      letterSpacing: 16,
-                                    ),
-                                    filled: true,
-                                    fillColor: colors.surfaceColor.withValues(alpha: isFocused ? 0.8 : 0.4),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(32),
-                                      borderSide: BorderSide(color: colors.borderColor.withValues(alpha: 0.3)),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(32),
-                                      borderSide: BorderSide(color: colors.borderColor.withValues(alpha: 0.3)),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(32),
-                                      borderSide: BorderSide(color: colors.accentExtra, width: 2),
-                                    ),
-                                  ),
-                                  onFieldSubmitted: (_) => _handleJoin(),
+                                  child: Icon(Icons.flight_takeoff_rounded, size: 40, color: colors.accentPrimary),
                                 ),
                               ),
-                              const SizedBox(height: 24),
+                              const SizedBox(height: 28),
+                              
+                              Text(
+                                'Join a Trip',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w900,
+                                  color: colors.textPrimary,
+                                  letterSpacing: -0.5,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                'Enter the 6-character invite code\nprovided by your trip leader.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: colors.textSecondary,
+                                  height: 1.5,
+                                ),
+                              ),
+                              const SizedBox(height: 48),
+                              
+                              // Hidden TextField & Custom Segments
+                              GestureDetector(
+                                onTap: () => FocusScope.of(context).requestFocus(_focusNode),
+                                child: Stack(
+                                  alignment: Alignment.center,
+                                  children: [
+                                    // The hidden real TextField
+                                    Opacity(
+                                      opacity: 0,
+                                      child: TextField(
+                                        focusNode: _focusNode,
+                                        controller: _codeController,
+                                        keyboardType: TextInputType.text,
+                                        textCapitalization: TextCapitalization.characters,
+                                        maxLength: 6,
+                                        inputFormatters: [
+                                          FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9]')),
+                                        ],
+                                        onChanged: (val) {
+                                          setState(() {});
+                                          if (val.length == 6) {
+                                            _handleJoin();
+                                          }
+                                        },
+                                      ),
+                                    ),
+                                    
+                                    // Visual Segmented Control
+                                    Row(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: List.generate(6, (index) {
+                                        final text = _codeController.text;
+                                        final char = index < text.length ? text[index].toUpperCase() : '';
+                                        final isActive = index == text.length || (index == 5 && text.length == 6);
+                                        return _buildSegment(char, isActive && _focusNode.hasFocus, colors);
+                                      }),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 32),
 
+                              // Error Message
                               Consumer<GroupProvider>(
                                 builder: (context, gp, _) {
                                   if (gp.errorMessage != null) {
                                     return Padding(
                                       padding: const EdgeInsets.only(bottom: 24),
-                                      child: Container(
+                                      child: AnimatedContainer(
+                                        duration: const Duration(milliseconds: 300),
                                         padding: const EdgeInsets.all(16),
                                         decoration: BoxDecoration(
-                                          color: colors.accentDanger.withValues(alpha: 0.1),
+                                          color: const Color(0xFFFFEBEE).withValues(alpha: 0.9), // Light red
                                           borderRadius: BorderRadius.circular(16),
-                                          border: Border.all(color: colors.accentDanger.withValues(alpha: 0.3)),
+                                          border: Border.all(color: const Color(0xFFEF9A9A)),
                                         ),
                                         child: Row(
                                           children: [
-                                            Icon(Icons.error_outline, color: colors.accentDanger, size: 20),
+                                            const Icon(Icons.error_outline_rounded, color: Color(0xFFD32F2F), size: 20),
                                             const SizedBox(width: 12),
                                             Expanded(
-                                              child: Text(gp.errorMessage!, style: TextStyle(color: colors.accentDanger, fontWeight: FontWeight.bold)),
+                                              child: Text(
+                                                gp.errorMessage!,
+                                                style: const TextStyle(color: Color(0xFFD32F2F), fontWeight: FontWeight.w600),
+                                              ),
                                             ),
                                           ],
                                         ),
@@ -206,61 +311,67 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> {
                                     );
                                   }
                                   return const SizedBox.shrink();
-                                },
+                                }
                               ),
 
-                              Consumer<GroupProvider>(
-                                builder: (context, gp, _) {
-                                  return SizedBox(
-                                    width: double.infinity, height: 60,
-                                    child: Container(
-                                      decoration: BoxDecoration(
-                                        gradient: LinearGradient(colors: [colors.accentExtra, colors.accentPrimary]),
-                                        borderRadius: BorderRadius.circular(32),
-                                        boxShadow: [
-                                          BoxShadow(color: colors.accentExtra.withValues(alpha: 0.3), blurRadius: 20, offset: const Offset(0, 5)),
-                                        ],
-                                      ),
-                                      child: ElevatedButton(
-                                        onPressed: gp.isLoading ? null : _handleJoin,
-                                        style: ElevatedButton.styleFrom(
-                                          backgroundColor: Colors.transparent,
-                                          shadowColor: Colors.transparent,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+                              // Join Button
+                              AnimatedContainer(
+                                duration: const Duration(milliseconds: 300),
+                                height: 56,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(28),
+                                  gradient: LinearGradient(
+                                    colors: _codeController.text.length == 6
+                                        ? [colors.accentPrimary, colors.accentSecondary ?? colors.accentPrimary]
+                                        : [colors.surfaceColor, colors.surfaceColor],
+                                  ),
+                                  boxShadow: _codeController.text.length == 6
+                                      ? [
+                                          BoxShadow(
+                                            color: colors.accentPrimary.withValues(alpha: 0.4),
+                                            blurRadius: 20,
+                                            offset: const Offset(0, 8),
+                                          )
+                                        ]
+                                      : [],
+                                ),
+                                child: ElevatedButton(
+                                  onPressed: (_isJoining || _codeController.text.length < 6) ? null : _handleJoin,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    foregroundColor: Colors.white,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(28)),
+                                    elevation: 0,
+                                  ),
+                                  child: _isJoining
+                                      ? const SizedBox(
+                                          width: 24, height: 24,
+                                          child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
+                                        )
+                                      : Text(
+                                          'Join Trip',
+                                          style: TextStyle(
+                                            fontSize: 18, 
+                                            fontWeight: FontWeight.bold, 
+                                            color: _codeController.text.length == 6 ? Colors.white : colors.textTertiary,
+                                            letterSpacing: 0.5
+                                          ),
                                         ),
-                                        child: gp.isLoading
-                                            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5, valueColor: AlwaysStoppedAnimation(Colors.white)))
-                                            : Text(
-                                                'Join Trip',
-                                                style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold, color: Colors.white, letterSpacing: 1.2),
-                                              ),
-                                      ),
-                                    ),
-                                  );
-                                },
+                                ),
                               ),
                             ],
                           ),
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildBlurOrb(Color color, double size) {
-    return Container(
-      width: size, height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color.withValues(alpha: 0.15)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 100, sigmaY: 100),
-        child: Container(color: Colors.transparent),
       ),
     );
   }

@@ -77,6 +77,8 @@ const groupSchema = new mongoose.Schema({
     }],
     // AI-generated route character description
     routeCharacter: { type: String, default: '' },
+    // Turn-by-turn steps from directions API
+    steps: { type: Array, default: [] },
     // Encoded polyline from Ola Directions API
     polyline: { type: String, default: null },
     // Decoded polyline points for deviation checking

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_auth/firebase_auth.dart';
 import '../core/constants.dart';
 
 /// User model
@@ -49,20 +50,69 @@ class AuthService {
         if (_token != null) 'Authorization': 'Bearer $_token',
       };
 
+  String? _verificationId;
+
+  /// Send OTP to a phone number using Firebase
+  Future<void> sendOtp(
+    String phone, {
+    required Function(String) onCodeSent,
+    required Function(String) onFailed,
+  }) async {
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: phone,
+        verificationCompleted: (PhoneAuthCredential credential) {},
+        verificationFailed: (FirebaseAuthException e) {
+          debugPrint('Firebase Auth Error: ${e.message}');
+          onFailed(e.message ?? 'Verification failed');
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          _verificationId = verificationId;
+          onCodeSent(verificationId);
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {},
+      );
+    } catch (e) {
+      debugPrint('Send OTP error: $e');
+      onFailed(e.toString());
+    }
+  }
+
+  /// Verify OTP using Firebase
+  Future<bool> verifyOtp(String otp) async {
+    if (_verificationId == null) return false;
+    try {
+      final credential = PhoneAuthProvider.credential(
+        verificationId: _verificationId!,
+        smsCode: otp,
+      );
+      await FirebaseAuth.instance.signInWithCredential(credential);
+      // At this point, the user is signed in to Firebase.
+      return true;
+    } catch (e) {
+      debugPrint('Verify OTP error: $e');
+      return false;
+    }
+  }
+
   /// Register a new user
   Future<Map<String, dynamic>> register({
     required String name,
     required String email,
+    required String phone,
     required String password,
+    required String otp,
   }) async {
     try {
       final response = await http.post(
-        Uri.parse('${AppConstants.serverBaseUrl}${AppConstants.registerEndpoint}'),
+        Uri.parse('${AppConstants.serverBaseUrl}/api/auth/register'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'name': name,
           'email': email,
+          'phone': phone,
           'password': password,
+          'otp': otp,
         }),
       );
 
@@ -82,17 +132,35 @@ class AuthService {
     }
   }
 
-  /// Login with email and password
+  /// Login with email/phone and password
   Future<Map<String, dynamic>> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     try {
+      // --- DEV BYPASS: Use dev-login endpoint for a real JWT ---
       final response = await http.post(
-        Uri.parse('${AppConstants.serverBaseUrl}${AppConstants.loginEndpoint}'),
+        Uri.parse('${AppConstants.serverBaseUrl}/api/auth/dev-login'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        _token = data['token'];
+        _currentUser = UserModel.fromJson(data['user']);
+        await _saveCredentials();
+        return {'success': true, 'user': _currentUser};
+      } else {
+        return {'success': false, 'error': data['error'] ?? 'Dev login failed'};
+      }
+
+      /* Original code:
+      final response = await http.post(
+        Uri.parse('${AppConstants.serverBaseUrl}/api/auth/login'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
-          'email': email,
+          'identifier': identifier,
           'password': password,
         }),
       );
@@ -107,6 +175,7 @@ class AuthService {
       } else {
         return {'success': false, 'error': data['error'] ?? 'Login failed'};
       }
+      */
     } catch (e) {
       debugPrint('Login error: $e');
       return {'success': false, 'error': 'Network error. Is the server running?'};
@@ -123,7 +192,7 @@ class AuthService {
       final response = await http.get(
         Uri.parse('${AppConstants.serverBaseUrl}${AppConstants.profileEndpoint}'),
         headers: authHeaders,
-      );
+      ).timeout(const Duration(seconds: 5));
 
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);

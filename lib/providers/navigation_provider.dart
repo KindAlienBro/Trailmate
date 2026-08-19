@@ -81,17 +81,20 @@ class NavigationProvider extends ChangeNotifier {
   List<RouteStep> _detourSteps = [];
   NearbyPlace? _selectedStop;
   String? _activeStopCategory;
+  String _runtimeTransportMode = 'driving';
 
   // Getters
   WebSocketService get wsService => _wsService;
   LocationService get locationService => _locationService;
   OlaMapsService get olaMapsService => _olaMapsService;
+  String get runtimeTransportMode => _runtimeTransportMode;
   bool get isNavigating => _isNavigating;
   Map<String, MemberPosition> get memberPositions => _memberPositions;
   List<LatLng> get routePolyline => _routePolyline;
   List<RouteStep> get routeSteps => _routeSteps;
   RouteStep? get currentStep => _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length ? _routeSteps[_currentStepIndex] : null;
   RouteStep? get upcomingStep => _routeSteps.isNotEmpty && _currentStepIndex + 1 < _routeSteps.length ? _routeSteps[_currentStepIndex + 1] : null;
+  RouteStep? get nextUpcomingStep => _routeSteps.isNotEmpty && _currentStepIndex + 2 < _routeSteps.length ? _routeSteps[_currentStepIndex + 2] : null;
   double get distanceToNextStep => _distanceToNextStep;
   double get routeDistance => _routeDistance;
   double get routeDuration => _routeDuration;
@@ -597,6 +600,7 @@ class NavigationProvider extends ChangeNotifier {
     _currentGroupId = group.id;
     _navigatingGroup = group;
     _isNavigating = true;
+    _runtimeTransportMode = group.route.transportMode;
     _hasArrived = false;
     _reachedLeader = false;
     _tripStartTime = DateTime.now();
@@ -629,6 +633,14 @@ class NavigationProvider extends ChangeNotifier {
 
     if (_locationService.lastPosition != null) {
       await _calculatePersonalRoute();
+    }
+  }
+
+  void setTransportMode(String mode) {
+    if (_runtimeTransportMode != mode) {
+      _runtimeTransportMode = mode;
+      notifyListeners();
+      _calculatePersonalRoute();
     }
   }
 
@@ -717,7 +729,7 @@ class NavigationProvider extends ChangeNotifier {
         destLat: destLat,
         destLng: destLng,
         waypoints: routeWaypoints.isNotEmpty ? routeWaypoints : null,
-        mode: _navigatingGroup?.route.transportMode,
+        mode: _runtimeTransportMode,
       );
 
       final routes = result['routes'] as List?;
@@ -868,6 +880,7 @@ class NavigationProvider extends ChangeNotifier {
           originLng: pos.longitude,
           destLat: stop.lat!,
           destLng: stop.lng!,
+          mode: _runtimeTransportMode,
         );
 
         debugPrint('Detour API Response status: ${result['status'] ?? 'No Status'}');
@@ -930,6 +943,7 @@ class NavigationProvider extends ChangeNotifier {
         originLng: pos.longitude,
         destLat: destLat,
         destLng: destLng,
+        mode: _runtimeTransportMode,
       );
 
       debugPrint('SOS API Response status: ${result['status'] ?? 'No Status'}');

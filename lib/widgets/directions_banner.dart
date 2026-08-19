@@ -50,6 +50,7 @@ class DirectionsBanner extends StatelessWidget {
 
   final RouteStep? detourCurrentStep;
   final double distanceToDetourManeuver;
+  final bool isLandscape;
 
   DirectionsBanner({
     super.key,
@@ -58,6 +59,7 @@ class DirectionsBanner extends StatelessWidget {
     this.distanceToNextManeuver = 0.0,
     this.detourCurrentStep,
     this.distanceToDetourManeuver = 0.0,
+    this.isLandscape = false,
   });
 
   /// Resolve the maneuver direction from both the maneuverType string and
@@ -77,36 +79,40 @@ class DirectionsBanner extends StatelessWidget {
       if (m.contains('depart')) return ManeuverDirection.depart;
       // U-turns
       if (m.contains('uturn') || m.contains('u-turn') || m.contains('u_turn')) {
-        return m.contains('right')
+        return m.contains('right') || inst.contains('right')
             ? ManeuverDirection.uTurnRight
             : ManeuverDirection.uTurnLeft;
       }
       // Roundabout
       if (m.contains('roundabout')) {
-        return m.contains('left')
+        return m.contains('left') || inst.contains('left')
             ? ManeuverDirection.roundaboutLeft
             : ManeuverDirection.roundaboutRight;
       }
       // Fork
       if (m.contains('fork')) {
-        return m.contains('left')
+        return m.contains('left') || inst.contains('left')
             ? ManeuverDirection.forkLeft
             : ManeuverDirection.forkRight;
       }
       // Ramp (highway on/off)
       if (m.contains('ramp') || m.contains('on-ramp') || m.contains('off-ramp')) {
-        return m.contains('left')
+        return m.contains('left') || inst.contains('left')
             ? ManeuverDirection.rampLeft
             : ManeuverDirection.rampRight;
       }
       // Merge
       if (m.contains('merge')) return ManeuverDirection.merge;
       // Sharp turns
-      if (m.contains('sharp') && m.contains('left')) return ManeuverDirection.sharpLeft;
-      if (m.contains('sharp') && m.contains('right')) return ManeuverDirection.sharpRight;
+      if (m.contains('sharp')) {
+        if (m.contains('left') || inst.contains('left')) return ManeuverDirection.sharpLeft;
+        if (m.contains('right') || inst.contains('right')) return ManeuverDirection.sharpRight;
+      }
       // Slight turns
-      if (m.contains('slight') && m.contains('left')) return ManeuverDirection.slightLeft;
-      if (m.contains('slight') && m.contains('right')) return ManeuverDirection.slightRight;
+      if (m.contains('slight')) {
+        if (m.contains('left') || inst.contains('left')) return ManeuverDirection.slightLeft;
+        if (m.contains('right') || inst.contains('right')) return ManeuverDirection.slightRight;
+      }
       // Normal turns
       if (m.contains('left')) return ManeuverDirection.turnLeft;
       if (m.contains('right')) return ManeuverDirection.turnRight;
@@ -157,10 +163,10 @@ class DirectionsBanner extends StatelessWidget {
       return ManeuverDirection.slightRight;
     }
     // Normal left/right
-    if (inst.contains('turn left') || inst.contains(' left')) {
+    if (inst.contains('left')) {
       return ManeuverDirection.turnLeft;
     }
-    if (inst.contains('turn right') || inst.contains(' right')) {
+    if (inst.contains('right')) {
       return ManeuverDirection.turnRight;
     }
 
@@ -390,30 +396,26 @@ class DirectionsBanner extends StatelessWidget {
       nextDistance = nextStep.distance;
     }
 
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(20),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-          child: Container(
-            width: double.infinity,
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A2030).withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.08),
-                width: 1,
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
+    return ConstrainedBox(
+      constraints: BoxConstraints(
+        maxWidth: isLandscape ? 420 : double.infinity,
+      ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFF0B463A), // Dark green matching Google Maps
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.3),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
             ),
-            child: Column(
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (detourCurrentStep != null)
@@ -422,6 +424,7 @@ class DirectionsBanner extends StatelessWidget {
                     upcomingStep: null,
                     distance: distanceToDetourManeuver,
                     isDetour: true,
+                    isLandscape: isLandscape,
                   )
                 else
                   _buildBannerRow(
@@ -429,12 +432,12 @@ class DirectionsBanner extends StatelessWidget {
                     upcomingStep: upcomingStep,
                     distance: distanceToNextManeuver,
                     isDetour: false,
+                    isLandscape: isLandscape,
                   ),
               ],
             ),
           ),
         ),
-      ),
     );
   }
 
@@ -443,6 +446,7 @@ class DirectionsBanner extends StatelessWidget {
     RouteStep? upcomingStep,
     required double distance,
     required bool isDetour,
+    required bool isLandscape,
   }) {
     final maneuverDir = _resolveDirection(currentStep.maneuverType, currentStep.instruction);
     final info = _getManeuverInfo(maneuverDir);
@@ -470,7 +474,10 @@ class DirectionsBanner extends StatelessWidget {
     }
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
+      padding: EdgeInsets.symmetric(
+        horizontal: isLandscape ? 12.0 : 16.0, 
+        vertical: isLandscape ? 8.0 : 14.0
+      ),
       child: Row(
         children: [
           // ── LEFT: Direction Icon Circle ──
@@ -499,10 +506,10 @@ class DirectionsBanner extends StatelessWidget {
             child: Icon(
               info.icon,
               color: isDetour ? Colors.black87 : Colors.white,
-              size: 30,
+              size: isLandscape ? 24 : 30,
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 12),
 
           // ── CENTER: Distance + Instruction + Road Name ──
           Expanded(
@@ -526,11 +533,11 @@ class DirectionsBanner extends StatelessWidget {
                 // Distance
                 Text(
                   _formatDistance(distance),
-                  style: const TextStyle(
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
+                  style: TextStyle(
+                    fontSize: isLandscape ? 24 : 30,
+                    fontWeight: FontWeight.w800,
                     color: Colors.white,
-                    letterSpacing: -0.5,
+                    letterSpacing: -1,
                     height: 1.1,
                   ),
                 ),

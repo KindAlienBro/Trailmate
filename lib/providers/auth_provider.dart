@@ -29,11 +29,55 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Send OTP
+  Future<void> sendOtp({
+    required String phone,
+    required Function(String) onCodeSent,
+    required Function(String) onFailed,
+  }) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    await _authService.sendOtp(
+      phone,
+      onCodeSent: (id) {
+        _isLoading = false;
+        notifyListeners();
+        onCodeSent(id);
+      },
+      onFailed: (error) {
+        _errorMessage = error;
+        _isLoading = false;
+        notifyListeners();
+        onFailed(error);
+      },
+    );
+  }
+
+  /// Verify OTP
+  Future<bool> verifyOtp(String otp) async {
+    _isLoading = true;
+    _errorMessage = null;
+    notifyListeners();
+
+    bool success = await _authService.verifyOtp(otp);
+
+    _isLoading = false;
+    if (!success) {
+      _errorMessage = 'Invalid OTP. Please try again.';
+    }
+    notifyListeners();
+    return success;
+  }
+
   /// Register a new account
   Future<bool> register({
     required String name,
     required String email,
+    required String phone,
     required String password,
+    required String otp,
   }) async {
     _isLoading = true;
     _errorMessage = null;
@@ -42,7 +86,9 @@ class AuthProvider extends ChangeNotifier {
     final result = await _authService.register(
       name: name,
       email: email,
+      phone: phone,
       password: password,
+      otp: otp,
     );
 
     _isLoading = false;
@@ -59,7 +105,7 @@ class AuthProvider extends ChangeNotifier {
 
   /// Login
   Future<bool> login({
-    required String email,
+    required String identifier,
     required String password,
   }) async {
     _isLoading = true;
@@ -67,7 +113,7 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     final result = await _authService.login(
-      email: email,
+      identifier: identifier,
       password: password,
     );
 

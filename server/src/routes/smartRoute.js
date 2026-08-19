@@ -338,7 +338,8 @@ function getOverpassTagFilters(mode) {
     default:
       return [
         `node["waterway"="waterfall"]`,
-        `node["tourism"="viewpoint"]${nameFilter}`,
+        `node["tourism"="viewpoint"]`,
+        `node["name"~"Sunset|Sunrise",i]`,
         `node["historic"="ruins"]${nameFilter}`,
         `node["natural"="peak"]${nameFilter}`,
         `node["natural"="cave_entrance"]`,
@@ -561,7 +562,7 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
       const dist = haversineKm(lastPoint.lat, lastPoint.lng, pt.lat, pt.lng);
       accumulatedDist += dist;
       
-      if (accumulatedDist >= 30) {
+      if (accumulatedDist >= 15) {
         sampledPoints.push(pt);
         accumulatedDist = 0;
         lastPoint = pt;
@@ -659,21 +660,45 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
       continue;
     }
     
-    // Boost landmark keywords - these are what tourists actually want to visit
-    const landmarkBoosts = [
-      { patterns: ['fort', 'killa', 'kote', 'durga', 'garh'], boost: 6 },
-      { patterns: ['gumbaz', 'gumbad', 'tomb', 'mausoleum', 'maqbara'], boost: 6 },
-      { patterns: ['palace', 'mahal', 'rajwada'], boost: 5 },
-      { patterns: ['temple', 'mandir', 'devasthana', 'kovil', 'gudi'], boost: 5 },
-      { patterns: ['mosque', 'masjid', 'dargah', 'church', 'basilica', 'cathedral'], boost: 5 },
-      { patterns: ['museum', 'gallery'], boost: 4 },
-      { patterns: ['falls', 'waterfall', 'jog', 'abbey'], boost: 4 },
-      { patterns: ['lake', 'dam', 'reservoir', 'sagar', 'kere'], boost: 3 },
-      { patterns: ['national park', 'wildlife', 'sanctuary', 'reserve'], boost: 4 },
-      { patterns: ['caves', 'cave', 'guha', 'leni'], boost: 4 },
-      { patterns: ['pillar', 'stambha', 'monument', 'memorial', 'statue'], boost: 3 },
-      { patterns: ['heritage', 'unesco', 'world heritage'], boost: 6 },
-    ];
+    // Boost landmark keywords based on mode
+    let landmarkBoosts = [];
+    
+    if (mode === 'cultural') {
+      landmarkBoosts = [
+        { patterns: ['heritage', 'unesco', 'world heritage', 'fort', 'killa', 'kote', 'durga', 'garh', 'palace', 'mahal', 'rajwada', 'museum', 'gallery', 'pillar', 'stambha', 'monument', 'memorial', 'statue', 'ruins', 'history', 'gumbaz', 'gumbad', 'tomb', 'mausoleum', 'maqbara'], boost: 8 },
+        { patterns: ['temple', 'mandir', 'mosque', 'masjid', 'church'], boost: 4 },
+      ];
+    } else if (mode === 'foodie') {
+      landmarkBoosts = [
+        { patterns: ['restaurant', 'cafe', 'bakery', 'food', 'dhaba', 'eatery', 'hotel', 'bhojanalaya', 'darshini', 'mess'], boost: 8 },
+        { patterns: ['market', 'bazaar'], boost: 4 },
+      ];
+    } else if (mode === 'spiritual') {
+      landmarkBoosts = [
+        { patterns: ['temple', 'mandir', 'devasthana', 'kovil', 'gudi', 'mosque', 'masjid', 'dargah', 'church', 'basilica', 'cathedral', 'ashram', 'matha', 'mutt', 'monastery', 'vihara'], boost: 8 },
+        { patterns: ['cave', 'caves', 'guha', 'leni', 'river', 'ghat'], boost: 3 },
+      ];
+    } else if (mode === 'coastal') {
+      landmarkBoosts = [
+        { patterns: ['beach', 'sea', 'ocean', 'coast', 'marina', 'bay', 'gulf', 'island'], boost: 8 },
+        { patterns: ['lighthouse', 'port', 'harbor'], boost: 5 },
+        { patterns: ['sunset', 'sunrise', 'viewpoint'], boost: 4 },
+      ];
+    } else if (mode === 'wildlife') {
+      landmarkBoosts = [
+        { patterns: ['national park', 'wildlife', 'sanctuary', 'reserve', 'tiger', 'elephant', 'bird', 'zoo', 'safari', 'forest', 'jungle'], boost: 8 },
+        { patterns: ['lake', 'dam', 'reservoir', 'river', 'waterfall', 'falls'], boost: 4 },
+      ];
+    } else {
+      // adventure, full_adventure, or default
+      landmarkBoosts = [
+        { patterns: ['sunset', 'sunrise', 'viewpoint', 'valley view', 'hill', 'peak', 'trek', 'mountain'], boost: 8 },
+        { patterns: ['falls', 'waterfall', 'jog', 'abbey', 'caves', 'cave', 'guha', 'leni'], boost: 6 },
+        { patterns: ['lake', 'dam', 'reservoir', 'sagar', 'kere', 'river'], boost: 5 },
+        { patterns: ['fort', 'killa', 'kote', 'durga', 'garh', 'palace', 'heritage', 'national park', 'wildlife', 'sanctuary'], boost: 4 },
+        { patterns: ['temple', 'mandir', 'mosque', 'church', 'museum'], boost: 2 },
+      ];
+    }
     
     for (const { patterns, boost } of landmarkBoosts) {
       if (patterns.some(p => nameLower.includes(p))) {
@@ -698,8 +723,8 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
     for (const existing of waypoints) {
       const dist = haversineKm(wp.lat, wp.lng, existing.lat, existing.lng);
       
-      // 2km physical deduplication — allows nearby-but-distinct landmarks
-      if (dist < 2) {
+      // 6km physical deduplication — forces POIs to spread out along the route
+      if (dist < 6) {
         tooClose = true;
         break;
       }
@@ -724,42 +749,138 @@ async function generateAdventureWaypoints(originLat, originLng, destLat, destLng
       type: wp.type,
     });
 
-    if (waypoints.length >= 25) break;
+    if (waypoints.length >= 100) break;
   }
 
-  // Sort waypoints by their projected distance along the line from origin to destination
+// Removed getGenericParagraphDescription as requested.
+
+async function enrichWithRealInfo(waypoints) {
+  const headers = { 'User-Agent': 'RoUniityApp/1.0 (https://github.com/rouniity; rouniity@example.com)' };
+
+  const promises = waypoints.map(async (wp) => {
+    // Fetch Image (Wikimedia Commons + Openverse)
+    if (!wp.photoUrl && wp.name && wp.name !== 'Scenic Spot') {
+      try {
+        // 1. Wikimedia Commons API
+        const wikiImgUrl = `https://en.wikipedia.org/w/api.php?action=query&prop=pageimages&generator=search&gsrsearch=${encodeURIComponent(wp.name)}&pithumbsize=400&format=json`;
+        const wikiImgRes = await axios.get(wikiImgUrl, { timeout: 3000, headers });
+        if (wikiImgRes?.data?.query?.pages) {
+          const pages = Object.values(wikiImgRes.data.query.pages);
+          if (pages.length > 0 && pages[0].thumbnail?.source) {
+            wp.photoUrl = pages[0].thumbnail.source;
+          }
+        }
+        
+        // 2. Fallback to Openverse
+        if (!wp.photoUrl) {
+          const ovUrl = `https://api.openverse.engineering/v1/images/?q=${encodeURIComponent(wp.name)}`;
+          const ovRes = await axios.get(ovUrl, { timeout: 3000, headers });
+          if (ovRes?.data?.results?.length > 0) {
+            wp.photoUrl = ovRes.data.results[0].url;
+          }
+        }
+      } catch (e) {
+        // silently ignore image fetch errors
+      }
+    }
+
+    // If it already has a good Wikipedia description, keep it
+    if (wp.source === 'wikipedia' && wp.reason && wp.reason.length > 50) return;
+    if (!wp.name || wp.name === 'Scenic Spot') return;
+
+    try {
+      // 1. Try a precise Wikipedia coordinate search first
+      const geoUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggscoord=${wp.lat}|${wp.lng}&ggsradius=1000&ggslimit=1&prop=extracts&exchars=300&explaintext=1&format=json`;
+      const geoRes = await axios.get(geoUrl, { timeout: 3000, headers });
+      let extract = null;
+      
+      if (geoRes?.data?.query?.pages) {
+        const page = Object.values(geoRes.data.query.pages)[0];
+        if (page && page.extract && page.extract.length > 50) {
+          extract = page.extract;
+        }
+      }
+
+      // 2. Try Wikipedia text search
+      if (!extract && wp.name.split(' ').length > 1 && !wp.name.toLowerCase().includes('viewpoint')) {
+        const searchUrl = `https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(wp.name)}&gsrlimit=1&prop=extracts&exchars=300&explaintext=1&format=json`;
+        const searchRes = await axios.get(searchUrl, { timeout: 3000, headers });
+        if (searchRes?.data?.query?.pages) {
+          const page = Object.values(searchRes.data.query.pages)[0];
+          if (page && page.extract && page.extract.length > 50) {
+            extract = page.extract;
+          }
+        }
+      }
+
+      if (extract) {
+        wp.reason = extract;
+        return;
+      }
+
+      // 3. Fallback to Wikidata description
+      const wikidataUrl = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(wp.name)}&language=en&format=json`;
+      const wikidataRes = await axios.get(wikidataUrl, { timeout: 3000, headers });
+      const wdResult = wikidataRes?.data?.search?.[0];
+      if (wdResult && wdResult.description) {
+        let desc = wdResult.description;
+        // Capitalize first letter
+        desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+        wp.reason = `Known as a ${desc}.`;
+        return;
+      }
+
+      // 4. Fallback to Nominatim Reverse Geocoding context
+      const nomUrl = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${wp.lat}&lon=${wp.lng}&zoom=14`;
+      const nomRes = await axios.get(nomUrl, { timeout: 3000, headers });
+      if (nomRes?.data?.address) {
+        const addr = nomRes.data.address;
+        const area = addr.city || addr.town || addr.village || addr.county || addr.state_district || 'the local area';
+        const state = addr.state || '';
+        wp.reason = `A notable point of interest located in ${area}${state ? ', ' + state : ''}.`;
+      }
+    } catch (e) {
+      // silently ignore API failures
+    }
+  });
+
+  await Promise.allSettled(promises);
+}
+
+  // Sort waypoints using Greedy Nearest Neighbor to prevent route zig-zagging
   if (waypoints.length > 0) {
-    // Vector AB (Origin to Destination)
-    const vecAB = {
-      lat: destLat - originLat,
-      lng: destLng - originLng,
-    };
-    
-    // Dot product of AB with itself (squared length of AB)
-    const lenSqAB = (vecAB.lat * vecAB.lat) + (vecAB.lng * vecAB.lng);
-    
-    // Calculate projection scalar for each waypoint
-    waypoints.forEach(wp => {
-      // Vector AP (Origin to Waypoint)
-      const vecAP = {
-        lat: wp.lat - originLat,
-        lng: wp.lng - originLng,
-      };
-      
-      // Dot product AP dot AB
-      const dotProduct = (vecAP.lat * vecAB.lat) + (vecAP.lng * vecAB.lng);
-      
-      // The fractional distance along the route
-      wp.projectionProgress = lenSqAB === 0 ? 0 : dotProduct / lenSqAB;
-    });
+    const sortedWaypoints = [];
+    let currentPt = { lat: originLat, lng: originLng };
+    const unvisited = [...waypoints];
+    let cumulativeDist = 0;
 
-    // Sort by projection progress (closest to origin first, closest to destination last)
-    waypoints.sort((a, b) => a.projectionProgress - b.projectionProgress);
-    
-    // Clean up the temporary property
-    waypoints.forEach(wp => delete wp.projectionProgress);
+    while (unvisited.length > 0) {
+      let nearestIdx = 0;
+      let minDst = Infinity;
 
-    return { waypoints, routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
+      for (let i = 0; i < unvisited.length; i++) {
+        const dst = haversineKm(currentPt.lat, currentPt.lng, unvisited[i].lat, unvisited[i].lng);
+        if (dst < minDst) {
+          minDst = dst;
+          nearestIdx = i;
+        }
+      }
+
+      const nextPt = unvisited.splice(nearestIdx, 1)[0];
+      cumulativeDist += minDst;
+      nextPt.distanceFromOrigin = Math.round(cumulativeDist);
+      nextPt.timeFromOrigin = Math.round((cumulativeDist / 40) * 60); // approx 40 km/h
+
+      sortedWaypoints.push(nextPt);
+      currentPt = nextPt;
+    }
+
+    // Enrich with actual factual info from Wikipedia
+    await enrichWithRealInfo(sortedWaypoints);
+
+    // Remove the fallback that uses the generic paragraphs
+
+    return { waypoints: sortedWaypoints, routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
   }
 
   return { waypoints, routeCharacter: ROUTE_CHARACTERS[mode] || 'A scenic route.' };
@@ -779,7 +900,7 @@ router.post('/suggest-waypoints', async (req, res) => {
       return res.json({ aiWaypoints: [], routeCharacter: 'Direct highway route — fastest path to your destination.' });
     }
 
-    const params = { origin, destination, api_key: getOlaApiKey(), steps: true };
+    const params = { origin, destination, api_key: getOlaApiKey(), steps: true, alternatives: true };
     if (transportMode) params.mode = transportMode;
 
     const initialRouteResponse = await axios.post(`${OLA_BASE_URL}/routing/v1/directions`, null, {
@@ -811,7 +932,7 @@ router.post('/smart-route', async (req, res) => {
     const [originLat, originLng] = origin.split(',').map(Number);
     const [destLat, destLng] = destination.split(',').map(Number);
 
-    const params = { origin, destination, api_key: getOlaApiKey(), steps: true };
+    const params = { origin, destination, api_key: getOlaApiKey(), steps: true, alternatives: true };
     if (transportMode) params.mode = transportMode;
 
     // STEP 1: Fetch baseline route from Ola Maps to get the exact road polyline
@@ -831,6 +952,7 @@ router.post('/smart-route', async (req, res) => {
     }
 
     let finalWaypoints = req.body.waypoints || [];
+    let routingWaypoints = finalWaypoints;
     let finalRouteCharacter = ROUTE_CHARACTERS[mode] || 'A scenic route.';
 
     // If client didn't provide waypoints, fallback to generating them (old flow)
@@ -841,18 +963,22 @@ router.post('/smart-route', async (req, res) => {
       finalWaypoints = aiResult.waypoints;
       finalRouteCharacter = aiResult.routeCharacter;
       
-      // Limit to 20 waypoints to respect Ola Maps API limits (max 25)
-      if (finalWaypoints.length > 20) {
-        finalWaypoints = finalWaypoints.slice(0, 20);
+      // Limit the preview route to 5 evenly spaced waypoints to keep the route clean and avoid zig-zagging webs.
+      // We keep all waypoints in finalWaypoints so the user can see/choose from all of them in the UI.
+      if (finalWaypoints.length > 5) {
+        const step = Math.max(1, Math.floor(finalWaypoints.length / 5));
+        routingWaypoints = finalWaypoints.filter((_, i) => i % step === 0).slice(0, 5);
+      } else {
+        routingWaypoints = finalWaypoints;
       }
       
-      console.log(`[SmartRoute] Generated ${finalWaypoints.length} waypoints for ${mode}`);
+      console.log(`[SmartRoute] Generated ${finalWaypoints.length} waypoints for ${mode}, routing via top ${routingWaypoints.length}`);
     }
 
-    // STEP 2: Make final call to Ola Maps with the generated waypoints
-    const waypointsStr = finalWaypoints.map((wp) => `${wp.lat},${wp.lng}`).join('|');
+    // STEP 2: Make final call to Ola Maps with the generated waypoints (up to 20)
+    const waypointsStr = routingWaypoints.map((wp) => `${wp.lat},${wp.lng}`).join('|');
     
-    let url = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true`;
+    let url = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true&alternatives=true`;
     if (transportMode) url += `&mode=${transportMode}`;
     if (waypointsStr) url += `&waypoints=${waypointsStr}`;
 
@@ -871,7 +997,7 @@ router.post('/smart-route', async (req, res) => {
     console.error('[SmartRoute] Error:', error.response?.data?.error || error.message);
     try {
       const { origin, destination, transportMode } = req.body;
-      let fallbackUrl = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true`;
+      let fallbackUrl = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true&alternatives=true`;
       if (transportMode) fallbackUrl += `&mode=${transportMode}`;
 
       const fallback = await axios.post(fallbackUrl, null, { timeout: 15000 });

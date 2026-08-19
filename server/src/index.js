@@ -35,6 +35,10 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/maps', olaProxyRoutes);

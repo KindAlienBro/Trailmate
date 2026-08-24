@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../core/constants.dart';
-import '../../providers/navigation_provider.dart';
+import '../core/constants.dart';
+import '../providers/navigation_provider.dart';
 import '../core/app_colors.dart';
 import '../core/theme.dart';
 
@@ -18,7 +18,7 @@ class PoiCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
-    // Try to map Google/Ola type to our icons, fallback to location
+    // Try to map Google/Ola type to our icons, fallback to place icon
     String iconKey = 'Food';
     if (place.type != null) {
       if (place.type!.contains('gas') || place.type!.contains('fuel')) {
@@ -32,7 +32,7 @@ class PoiCard extends StatelessWidget {
       }
     }
 
-    final emoji = AppConstants.poiIcons[iconKey] ?? '📍';
+    final iconData = AppConstants.poiIcons[iconKey] ?? Icons.place_rounded;
 
     return GestureDetector(
       onTap: onTap,
@@ -50,10 +50,10 @@ class PoiCard extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: colors.surfaceColor,
+                    color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Text(emoji, style: TextStyle(fontSize: 20)),
+                  child: Icon(iconData, color: const Color(0xFF4CAF50), size: 22),
                 ),
                 SizedBox(width: 12),
                 if (place.rating != null)

@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
@@ -35,6 +37,10 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   bool _isCreating = false;
   Set<int> _selectedPoiIndices = {};
   int _selectedRouteIndex = 0;
+  
+  bool _isSheetExpanded = true;
+  bool _isPoisExpanded = true;
+  bool _isStylesExpanded = true;
   
   static const List<Color> _routeColors = [
     Color(0xFF4CAF50), // Green (Main)
@@ -135,7 +141,8 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
         final points = decodePolyline(polylineStr);
         if (points.isNotEmpty) {
           if (_styleWaypoints != null) {
-            _selectedPoiIndices = { for (int i = 0; i < _styleWaypoints!.length; i++) i };
+            // Keep POIs unselected by default
+            // _selectedPoiIndices = { for (int i = 0; i < _styleWaypoints!.length; i++) i };
           }
           final bounds = LatLngBounds.fromPoints([
             ...points,
@@ -294,11 +301,17 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
           // 1. Map Layer
           _buildMapLayer(),
 
-          // 2. Stats Floating Pill
-          _buildFloatingStatsPill(),
-
-          // 3. Bottom Sheet (Draggable or Fixed)
-          _buildBottomSheet(),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                _buildFloatingStatsPill(),
+                _buildBottomSheet(),
+              ],
+            ),
+          ),
           
           // Back Button
           Positioned(
@@ -318,10 +331,39 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   }
 
   Widget _buildMapLayer() {
+    final trueOrigin = LatLng(widget.origin.lat!, widget.origin.lng!);
+    final trueDest = LatLng(widget.destination.lat!, widget.destination.lng!);
+    List<LatLng>? selectedPolyline;
+
+    if (_styleRoutes != null && _styleRoutes!.isNotEmpty && _selectedRouteIndex < _styleRoutes!.length) {
+      selectedPolyline = decodePolyline(_styleRoutes![_selectedRouteIndex]['overview_polyline'] ?? _styleRoutes![_selectedRouteIndex]['geometry'] ?? '');
+    } else if (_baseRoutes != null && _baseRoutes!.isNotEmpty && _selectedRouteIndex < _baseRoutes!.length) {
+      selectedPolyline = decodePolyline(_baseRoutes![_selectedRouteIndex]['overview_polyline'] ?? _baseRoutes![_selectedRouteIndex]['geometry'] ?? '');
+    }
+
+    // Google Maps style origin/destination connectors
+    final List<Polyline> connectorLines = [];
+    if (selectedPolyline != null && selectedPolyline.isNotEmpty) {
+      // Connect true origin to route start
+      connectorLines.add(Polyline(
+        points: [trueOrigin, selectedPolyline.first],
+        color: Colors.grey.shade600,
+        strokeWidth: 3.0,
+        pattern: const StrokePattern.dotted(spacingFactor: 2),
+      ));
+      // Connect route end to true destination
+      connectorLines.add(Polyline(
+        points: [selectedPolyline.last, trueDest],
+        color: Colors.grey.shade600,
+        strokeWidth: 3.0,
+        pattern: const StrokePattern.dotted(spacingFactor: 2),
+      ));
+    }
+
     return FlutterMap(
       mapController: _mapController,
       options: MapOptions(
-        initialCenter: LatLng(widget.origin.lat!, widget.origin.lng!),
+        initialCenter: trueOrigin,
         initialZoom: 8.0,
       ),
       children: [
@@ -340,11 +382,12 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                     color: _getRouteColor(i).withValues(alpha: 0.6),
                     strokeWidth: 4,
                   ),
-              Polyline(
-                points: decodePolyline(_styleRoutes![_selectedRouteIndex]['overview_polyline'] ?? _styleRoutes![_selectedRouteIndex]['geometry'] ?? ''),
-                color: _getRouteColor(_selectedRouteIndex),
-                strokeWidth: 6,
-              ),
+              if (selectedPolyline != null)
+                Polyline(
+                  points: selectedPolyline,
+                  color: _getRouteColor(_selectedRouteIndex),
+                  strokeWidth: 6,
+                ),
             ],
           )
         else if (_baseRoutes != null && _baseRoutes!.isNotEmpty)
@@ -357,13 +400,18 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                     color: _getRouteColor(i).withValues(alpha: 0.6),
                     strokeWidth: 4,
                   ),
-              Polyline(
-                points: decodePolyline(_baseRoutes![_selectedRouteIndex]['overview_polyline'] ?? _baseRoutes![_selectedRouteIndex]['geometry'] ?? ''),
-                color: _getRouteColor(_selectedRouteIndex),
-                strokeWidth: 6,
-              ),
+              if (selectedPolyline != null)
+                Polyline(
+                  points: selectedPolyline,
+                  color: _getRouteColor(_selectedRouteIndex),
+                  strokeWidth: 6,
+                ),
             ],
           ),
+          
+        // Render connector lines
+        if (connectorLines.isNotEmpty)
+          PolylineLayer(polylines: connectorLines),
         
         // ETA Bubbles
         MarkerLayer(
@@ -462,14 +510,14 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
         MarkerLayer(
           markers: [
             Marker(
-              point: LatLng(widget.origin.lat!, widget.origin.lng!),
+              point: trueOrigin,
               width: 160,
               height: 100,
               alignment: Alignment.topCenter,
               child: _buildLocationMarker(widget.origin.name, isOrigin: true),
             ),
             Marker(
-              point: LatLng(widget.destination.lat!, widget.destination.lng!),
+              point: trueDest,
               width: 160,
               height: 100,
               alignment: Alignment.topCenter,
@@ -545,12 +593,10 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   }
 
   Widget _buildFloatingStatsPill() {
-    return Positioned(
-      bottom: 420, // Sit just above the bottom sheet
-      left: 16, right: 16,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-        decoration: BoxDecoration(
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+      decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
           boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 5))],
@@ -567,7 +613,6 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
             _buildStatItem(Icons.speed, 'Fastest', 'Less detours'),
           ],
         ),
-      ),
     );
   }
 
@@ -592,28 +637,41 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   }
 
   Widget _buildBottomSheet() {
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Container(
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-          boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, -5))],
-        ),
+    return Container(
+      constraints: BoxConstraints(
+        maxHeight: MediaQuery.of(context).size.height * 0.8,
+      ),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
+        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 20, offset: Offset(0, -5))],
+      ),
+      child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const SizedBox(height: 12),
-            Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: () => setState(() => _isSheetExpanded = !_isSheetExpanded),
+              behavior: HitTestBehavior.opaque,
+              child: Column(
+                children: [
+                  const SizedBox(height: 12),
+                  Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.grey.shade300, borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 8),
+                  Icon(_isSheetExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up, color: Colors.grey.shade400, size: 20),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
             
-            // Multiple Routes Selector
-            Builder(builder: (context) {
-              final activeRoutes = (_styleRoutes != null && _styleRoutes!.isNotEmpty) ? _styleRoutes! : (_baseRoutes ?? []);
-              if (activeRoutes.length <= 1) return const SizedBox.shrink();
-              
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
+            if (_isSheetExpanded) ...[
+              // Multiple Routes Selector
+              Builder(builder: (context) {
+                final activeRoutes = (_styleRoutes != null && _styleRoutes!.isNotEmpty) ? _styleRoutes! : (_baseRoutes ?? []);
+                if (activeRoutes.length <= 1) return const SizedBox.shrink();
+                
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
                 child: SizedBox(
                   height: 40,
                   child: ListView.builder(
@@ -657,24 +715,37 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24.0),
               child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text('Choose your adventure', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  const SizedBox(width: 8),
-                  Icon(Icons.landscape, color: Colors.green.shade800),
+                  Row(
+                    children: [
+                      const Text('Choose your adventure', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.black87)),
+                      const SizedBox(width: 8),
+                      Icon(Icons.landscape, color: Colors.green.shade800),
+                    ],
+                  ),
+                  IconButton(
+                    icon: Icon(_isStylesExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up),
+                    onPressed: () {
+                      setState(() {
+                        _isStylesExpanded = !_isStylesExpanded;
+                      });
+                    },
+                  ),
                 ],
               ),
             ),
-            const Padding(
+            if (_isStylesExpanded) const Padding(
               padding: EdgeInsets.symmetric(horizontal: 24.0, vertical: 4.0),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text('How do you want to experience this journey?', style: TextStyle(color: Colors.black54, fontSize: 13)),
               ),
             ),
-            const SizedBox(height: 16),
+            if (_isStylesExpanded) const SizedBox(height: 16),
 
             // Horizontal Style Cards
-            SizedBox(
+            if (_isStylesExpanded) SizedBox(
               height: 210,
               child: ListView(
                 scrollDirection: Axis.horizontal,
@@ -769,6 +840,8 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
             if (_styleWaypoints != null && _styleWaypoints!.isNotEmpty) ...[
               const SizedBox(height: 16),
               _buildTopPoisSection(),
+            ],
+
             ],
 
             const SizedBox(height: 16),
@@ -923,38 +996,48 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Text('Top POIs on this route', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.grey.shade200,
-                          borderRadius: BorderRadius.circular(12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Flexible(child: Text('Top POIs on this route', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87), overflow: TextOverflow.ellipsis)),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade200,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text('${_selectedPoiIndices.length}/${_styleWaypoints!.length}', style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
                         ),
-                        child: Text('${_selectedPoiIndices.length}/${_styleWaypoints!.length}', style: const TextStyle(fontSize: 11, color: Colors.black54, fontWeight: FontWeight.bold)),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 2),
-                  const Text('Handpicked places worth stopping for', style: TextStyle(fontSize: 12, color: Colors.black54)),
-                ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    const Text('Handpicked places worth stopping for', style: TextStyle(fontSize: 12, color: Colors.black54), overflow: TextOverflow.ellipsis),
+                  ],
+                ),
               ),
               Row(
                 children: [
                   const Text('View all', style: TextStyle(fontSize: 13, color: Colors.black87, fontWeight: FontWeight.w600)),
                   const Icon(Icons.chevron_right, size: 18, color: Colors.black87),
+                  IconButton(
+                    icon: Icon(_isPoisExpanded ? Icons.keyboard_arrow_down : Icons.keyboard_arrow_up),
+                    onPressed: () {
+                      setState(() {
+                        _isPoisExpanded = !_isPoisExpanded;
+                      });
+                    },
+                  ),
                 ],
               ),
             ],
           ),
         ),
-        const SizedBox(height: 12),
-        SizedBox(
+        if (_isPoisExpanded) const SizedBox(height: 12),
+        if (_isPoisExpanded) SizedBox(
           height: 240,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
@@ -979,6 +1062,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                     }
                   });
                 },
+                onLongPress: () => _showPoiDetails(wp),
                 child: Container(
                   width: 180,
                   margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1101,6 +1185,250 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
       child: Center(
         child: Icon(Icons.landscape, size: 40, color: Colors.green.shade300),
       ),
+    );
+  }
+
+  Future<Map<String, String>> _fetchWikiData(String query, double lat, double lng) async {
+    try {
+      final uri = Uri.parse('https://en.wikipedia.org/w/api.php?action=query&generator=geosearch&ggscoord=$lat|$lng&ggsradius=5000&ggslimit=10&prop=pageimages|extracts&exintro&explaintext&pithumbsize=600&format=json');
+      final response = await http.get(uri);
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final pages = data['query']?['pages'] as Map<String, dynamic>?;
+        if (pages != null && pages.isNotEmpty) {
+          Map<String, dynamic>? bestPage;
+          for (final page in pages.values) {
+            if (page['thumbnail'] != null && page['thumbnail']['source'] != null) {
+              bestPage = page as Map<String, dynamic>;
+              break;
+            }
+          }
+          bestPage ??= pages.values.first as Map<String, dynamic>;
+          if (bestPage['pageid'] != null) {
+            return {
+              'image': bestPage['thumbnail']?['source'] ?? '',
+              'extract': bestPage['extract'] ?? '',
+            };
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Wiki fetch error: $e');
+    }
+    return {'image': '', 'extract': ''};
+  }
+
+  void _showPoiDetails(dynamic wp) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        final String title = wp['name'] ?? 'POI';
+        final String desc = wp['reason'] ?? 'A notable spot to visit.';
+        final double lat = wp['lat'];
+        final double lng = wp['lng'];
+        final String type = wp['type'] ?? 'poi';
+        
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.4,
+          maxChildSize: 0.9,
+          builder: (_, controller) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: FutureBuilder<Map<String, String>>(
+              future: _fetchWikiData(title, lat, lng),
+              builder: (context, snapshot) {
+                final isLoading = snapshot.connectionState == ConnectionState.waiting;
+                final wikiData = snapshot.data ?? {'image': '', 'extract': ''};
+                final hasImage = wikiData['image']!.isNotEmpty;
+                final hasExtract = wikiData['extract']!.isNotEmpty;
+
+                return Column(
+                  children: [
+                    // Pull tab
+                    Center(
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 12),
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade300,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        controller: controller,
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        children: [
+                          // Cover Photo
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Container(
+                              height: 200,
+                              color: Colors.grey.shade100,
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  if (isLoading)
+                                    const Center(child: CircularProgressIndicator())
+                                  else if (hasImage)
+                                    Image.network(
+                                      wikiData['image']!,
+                                      fit: BoxFit.cover,
+                                      errorBuilder: (_, __, ___) => const Center(
+                                        child: Icon(Icons.landscape_rounded, size: 64, color: Colors.grey),
+                                      ),
+                                    )
+                                  else
+                                    const Center(
+                                      child: Icon(Icons.landscape_rounded, size: 64, color: Colors.grey),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          Row(
+                            children: [
+                              Container(
+                                width: 48,
+                                height: 48,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF4CAF50).withOpacity(0.15),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+                                ),
+                                child: const Icon(Icons.place, color: Color(0xFF4CAF50), size: 28),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      title,
+                                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.black87),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      type.toUpperCase().replaceAll('_', ' '),
+                                      style: const TextStyle(color: Color(0xFF1E5B33), fontSize: 13, fontWeight: FontWeight.w600),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          const Text(
+                            'Why we recommended this:',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            desc,
+                            style: const TextStyle(fontSize: 15, color: Colors.black54, height: 1.5),
+                          ),
+                          const SizedBox(height: 24),
+                          
+                          // Factual Info Section
+                          const Text(
+                            'Factual Information',
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87),
+                          ),
+                          const SizedBox(height: 16),
+                          if (isLoading)
+                            const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                          else if (hasExtract)
+                            Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(16),
+                                border: Border.all(color: Colors.grey.shade200),
+                              ),
+                              child: Text(
+                                wikiData['extract']!,
+                                style: const TextStyle(color: Colors.black54, height: 1.5, fontSize: 14),
+                              ),
+                            )
+                          else
+                            const Text(
+                              'No extended factual information available from Open Data sources.',
+                              style: TextStyle(color: Colors.black38, fontStyle: FontStyle.italic),
+                            ),
+                        ],
+                      ),
+                    ),
+                    // Action Bar
+                    Container(
+                      padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: GestureDetector(
+                              onTap: () => Navigator.pop(context),
+                              child: Container(
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(16),
+                                  border: Border.all(color: Colors.grey.shade300),
+                                ),
+                                child: const Center(
+                                  child: Text('Close', style: TextStyle(fontWeight: FontWeight.w600, color: Colors.black87)),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            flex: 2,
+                            child: GestureDetector(
+                              onTap: () {
+                                Navigator.pop(context);
+                                // Optional: they can also toggle selection here
+                                final idx = _styleWaypoints!.indexOf(wp);
+                                if (idx != -1) {
+                                  setState(() {
+                                    if (!_selectedPoiIndices.contains(idx)) {
+                                      _selectedPoiIndices.add(idx);
+                                    }
+                                  });
+                                }
+                              },
+                              child: Container(
+                                height: 56,
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF1E5B33),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: const Center(
+                                  child: Text('Add to Route', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 16)),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 }

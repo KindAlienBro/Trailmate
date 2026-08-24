@@ -149,14 +149,16 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                             width: 36,
                             height: 36,
                             child: Container(
+                              width: 36,
+                              height: 36,
                               decoration: BoxDecoration(
-                                color: colors.accentExtra,
+                                color: Colors.white,
                                 shape: BoxShape.circle,
-                                border: Border.all(color: Colors.white, width: 2),
-                                boxShadow: [BoxShadow(color: colors.accentExtra.withValues(alpha: 0.4), blurRadius: 6)],
+                                border: Border.all(color: const Color(0xFF4CAF50), width: 2.5),
+                                boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.2), blurRadius: 4)],
                               ),
                               child: Center(
-                                child: Text(wp.emoji, style: TextStyle(fontSize: 14)),
+                                child: Icon(wp.iconData, color: const Color(0xFF4CAF50), size: 16),
                               ),
                             ),
                           )),
@@ -276,9 +278,16 @@ class _RouteSelectionSheetState extends State<RouteSelectionSheet> {
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(color: colors.accentExtra.withValues(alpha: 0.3)),
                               ),
-                              child: Text(
-                                '${wp.emoji} ${wp.name}',
-                                style: TextStyle(fontSize: 11, color: colors.accentExtra, fontWeight: FontWeight.w500),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(wp.iconData, color: const Color(0xFF4CAF50), size: 12),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    wp.name,
+                                    style: TextStyle(fontSize: 11, color: const Color(0xFF4CAF50), fontWeight: FontWeight.w500),
+                                  ),
+                                ],
                               ),
                             )).toList(),
                           ),

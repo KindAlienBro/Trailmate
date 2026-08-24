@@ -224,6 +224,29 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
     return markers;
   }
 
+  /// Finds the nearest point on the polyline for a given waypoint
+  LatLng _nearestPointOnPolyline(LatLng point, List<LatLng> polyline) {
+    if (polyline.isEmpty) return point;
+    
+    double minDist = double.infinity;
+    LatLng nearest = polyline.first;
+    
+    for (final p in polyline) {
+      final dist = _distanceSq(point, p);
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = p;
+      }
+    }
+    return nearest;
+  }
+  
+  double _distanceSq(LatLng a, LatLng b) {
+    final dlat = a.latitude - b.latitude;
+    final dlng = a.longitude - b.longitude;
+    return dlat * dlat + dlng * dlng;
+  }
+
   Widget _buildMapPreview(GroupModel group, AppColorScheme colors) {
     LatLng? origin;
     LatLng? dest;
@@ -238,6 +261,23 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
       }
       if (group.route.polyline != null) {
         polyline = decodePolyline(group.route.polyline!);
+      }
+    }
+
+    // Build connector polylines from waypoints to route
+    final List<Polyline<Object>> waypointConnectors = [];
+    if (polyline.isNotEmpty && group.route.aiWaypoints != null) {
+      for (final wp in group.route.aiWaypoints!) {
+        final wpPos = LatLng(wp.lat, wp.lng);
+        final nearest = _nearestPointOnPolyline(wpPos, polyline);
+        waypointConnectors.add(
+          Polyline(
+            points: [nearest, wpPos],
+            color: const Color(0xFF4CAF50).withValues(alpha: 0.6),
+            strokeWidth: 3.0,
+            pattern: const StrokePattern.dotted(),
+          ),
+        );
       }
     }
 
@@ -262,6 +302,9 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
               Polyline(points: polyline, color: colors.accentPrimary, strokeWidth: 5.0),
             ],
           ),
+        // Waypoint connector lines (drawn before markers so they appear behind)
+        if (waypointConnectors.isNotEmpty)
+          PolylineLayer(polylines: waypointConnectors),
         if (group.route.steps.isNotEmpty)
           MarkerLayer(
             markers: _buildManeuverMarkers(group.route.steps),
@@ -272,17 +315,19 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
             if (group.route.hasRoute && group.route.aiWaypoints != null)
               ...group.route.aiWaypoints!.map((wp) => Marker(
                 point: LatLng(wp.lat, wp.lng),
-                width: 40,
-                height: 40,
+                width: 44,
+                height: 44,
                 child: Container(
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     color: Colors.white,
                     shape: BoxShape.circle,
                     boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
-                    border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+                    border: Border.all(color: const Color(0xFF4CAF50), width: 2.5),
                   ),
                   child: Center(
-                    child: Text(wp.emoji, style: const TextStyle(fontSize: 16)),
+                    child: Icon(wp.iconData, color: const Color(0xFF4CAF50), size: 20),
                   ),
                 ),
               )),

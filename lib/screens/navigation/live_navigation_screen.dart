@@ -1440,7 +1440,16 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                         SizedBox(height: 20),
                         Row(
                           children: [
-                            Text(wp.emoji, style: TextStyle(fontSize: 32)),
+                            Container(
+                              width: 48,
+                              height: 48,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF4CAF50).withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: const Color(0xFF4CAF50), width: 2),
+                              ),
+                              child: Icon(wp.iconData, color: const Color(0xFF4CAF50), size: 28),
+                            ),
                             SizedBox(width: 16),
                             Expanded(
                               child: Column(

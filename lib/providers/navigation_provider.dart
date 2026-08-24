@@ -629,10 +629,20 @@ class NavigationProvider extends ChangeNotifier {
       _queueSpeak('Night driving mode. Please drive safely, ensure your headlights are on, and maintain a safe following distance.', priority: TtsPriority.low);
     }
 
+    // Use the group's predefined route polyline initially
+    if (group.route.polyline?.isNotEmpty == true) {
+      _routePolyline = decodePolyline(group.route.polyline!);
+      // We do not call _calculatePersonalRoute() here if the user is the leader 
+      // because we want to preserve their custom start point rather than immediately
+      // routing from their current GPS location.
+    }
+
     notifyListeners();
 
     if (_locationService.lastPosition != null) {
-      await _calculatePersonalRoute();
+      if (_currentUserId != null && !group.isLeader(_currentUserId!)) {
+        await _calculatePersonalRoute();
+      }
     }
   }
 
@@ -757,32 +767,45 @@ class NavigationProvider extends ChangeNotifier {
           }
         }
 
-        // Parse distance and duration (from the first leg)
+        // Parse distance and duration (from all legs)
         final legs = route['legs'] as List?;
         if (legs != null && legs.isNotEmpty) {
-          final leg = legs[0];
-          _routeDistance = (leg['distance'] as num?)?.toDouble() ?? 0;
-          _routeDuration = (leg['duration'] as num?)?.toDouble() ?? 0;
+          double totalDistance = 0;
+          double totalDuration = 0;
+          List<RouteStep> allSteps = [];
+
+          for (final leg in legs) {
+            totalDistance += (leg['distance'] as num?)?.toDouble() ?? 0;
+            totalDuration += (leg['duration'] as num?)?.toDouble() ?? 0;
+            
+            final stepsJson = leg['steps'] as List?;
+            if (stepsJson != null) {
+              allSteps.addAll(stepsJson.map((s) => RouteStep.fromJson(s)));
+            }
+          }
+
+          _routeDistance = totalDistance;
+          _routeDuration = totalDuration;
           _remainingDistance = _routeDistance;
           _remainingDuration = _routeDuration;
 
-          // Parse steps
-          final stepsJson = leg['steps'] as List?;
-          if (stepsJson != null) {
-            _routeSteps = stepsJson.map((s) => RouteStep.fromJson(s)).toList();
-            _currentStepIndex = 0;
-            _hasSpokenApproachWarning = false;
-            _distanceToNextStep = _routeSteps.isNotEmpty ? _routeSteps[0].distance : 0;
-            
-            // Speak first instruction
-            if (_routeSteps.isNotEmpty) {
-              _queueSpeak(_routeSteps[0].instruction, priority: TtsPriority.normal);
-            }
-          } else {
-            _routeSteps = [];
-            _currentStepIndex = 0;
-            _distanceToNextStep = 0;
+          _routeSteps = allSteps;
+          _currentStepIndex = 0;
+          _hasSpokenApproachWarning = false;
+          _distanceToNextStep = _routeSteps.isNotEmpty ? _routeSteps[0].distance : 0;
+          
+          // Speak first instruction
+          if (_routeSteps.isNotEmpty) {
+            _queueSpeak(_routeSteps[0].instruction, priority: TtsPriority.normal);
           }
+        } else {
+          _routeDistance = 0;
+          _routeDuration = 0;
+          _remainingDistance = 0;
+          _remainingDuration = 0;
+          _routeSteps = [];
+          _currentStepIndex = 0;
+          _distanceToNextStep = 0;
         }
         
         _reachedLeader = false;

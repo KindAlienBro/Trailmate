@@ -286,32 +286,32 @@ class AIWaypoint {
     if (photoUrl != null) 'photoUrl': photoUrl,
   };
 
-  String get emoji {
+  IconData get iconData {
     switch (type) {
-      case 'curvy_road': return '\u{1F6E3}\u{FE0F}';
-      case 'mountain_pass': return '\u{26F0}\u{FE0F}';
-      case 'waterfall': return '\u{1F4A7}';
-      case 'dam': return '\u{1F3ED}'; // 🏭 (or 🧱)
-      case 'lake': return '\u{1F3DE}\u{FE0F}'; // 🏞️
-      case 'cave': return '\u{1F987}'; // 🦇
-      case 'attraction': return '\u{1F3A2}'; // 🎢
-      case 'jungle': return '\u{1F333}';
-      case 'water_crossing': return '\u{1F30A}';
-      case 'viewpoint': return '\u{1F304}';
-      case 'heritage': return '\u{1F3DF}\u{FE0F}';
-      case 'museum': return '\u{1F3DB}\u{FE0F}'; // 🏛️
-      case 'monument': return '\u{1F5FD}'; // 🗽
-      case 'restaurant': return '\u{1F35D}'; // 🍝
-      case 'cafe': return '\u{2615}'; // ☕
-      case 'bakery': return '\u{1F950}'; // 🥐
-      case 'beach': return '\u{1F3D6}\u{FE0F}'; // 🏖️
-      case 'marina': return '\u{26F5}'; // ⛵
-      case 'worship': return '\u{1F6D0}'; // 🛐
-      case 'national_park': return '\u{1F3DE}\u{FE0F}'; // 🏞️
-      case 'zoo': return '\u{1F418}'; // 🐘
+      case 'curvy_road': return Icons.trending_up_rounded;
+      case 'mountain_pass': return Icons.terrain_rounded;
+      case 'waterfall': return Icons.water_drop_rounded;
+      case 'dam': return Icons.water_rounded;
+      case 'lake': return Icons.landscape_rounded;
+      case 'cave': return Icons.dark_mode_rounded;
+      case 'attraction': return Icons.attractions_rounded;
+      case 'jungle': return Icons.park_rounded;
+      case 'water_crossing': return Icons.waves_rounded;
+      case 'viewpoint': return Icons.visibility_rounded;
+      case 'heritage': return Icons.castle_rounded;
+      case 'museum': return Icons.museum_rounded;
+      case 'monument': return Icons.account_balance_rounded;
+      case 'restaurant': return Icons.restaurant_rounded;
+      case 'cafe': return Icons.local_cafe_rounded;
+      case 'bakery': return Icons.bakery_dining_rounded;
+      case 'beach': return Icons.beach_access_rounded;
+      case 'marina': return Icons.sailing_rounded;
+      case 'worship': return Icons.temple_hindu_rounded;
+      case 'national_park': return Icons.forest_rounded;
+      case 'zoo': return Icons.pets_rounded;
       case 'scenic':
       default:
-        return '\u{1F4CD}';
+        return Icons.place_rounded;
     }
   }
 }

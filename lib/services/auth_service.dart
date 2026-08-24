@@ -188,19 +188,45 @@ class AuthService {
       _token = await _storage.read(key: AppConstants.tokenKey);
       if (_token == null) return false;
 
-      // Verify token is still valid
-      final response = await http.get(
-        Uri.parse('${AppConstants.serverBaseUrl}${AppConstants.profileEndpoint}'),
-        headers: authHeaders,
-      ).timeout(const Duration(seconds: 5));
+      // Also restore user info from storage so the app is usable even if
+      // the server is unreachable (e.g. offline or server cold-starting).
+      final storedId    = await _storage.read(key: AppConstants.userIdKey);
+      final storedName  = await _storage.read(key: AppConstants.userNameKey);
+      final storedEmail = await _storage.read(key: AppConstants.userEmailKey);
+      if (storedId != null && storedName != null && storedEmail != null) {
+        _currentUser = UserModel(
+          id: storedId,
+          name: storedName,
+          email: storedEmail,
+          phone: '',
+        );
+      }
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        _currentUser = UserModel.fromJson(data['user']);
-        return true;
-      } else {
-        await logout();
-        return false;
+      // Try to verify token & refresh user profile from server.
+      // If the server is unreachable (timeout / network error), keep the
+      // locally-stored token/user — the user stays logged in.
+      try {
+        final response = await http.get(
+          Uri.parse('${AppConstants.serverBaseUrl}${AppConstants.profileEndpoint}'),
+          headers: authHeaders,
+        ).timeout(const Duration(seconds: 5));
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          _currentUser = UserModel.fromJson(data['user']);
+          await _saveCredentials(); // refresh stored name/email
+          return true;
+        } else if (response.statusCode == 401) {
+          // Token is genuinely invalid/expired — clear session
+          await logout();
+          return false;
+        }
+        // Any other HTTP error (5xx etc.) — keep token, return true
+        return _currentUser != null;
+      } catch (networkError) {
+        // Network timeout or no connectivity — keep token & cached user
+        debugPrint('Auto-login: server unreachable, using cached session: $networkError');
+        return _currentUser != null;
       }
     } catch (e) {
       debugPrint('Auto-login error: $e');

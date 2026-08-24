@@ -8,6 +8,7 @@ import '../../providers/navigation_provider.dart';
 import '../../widgets/theme_switcher_sheet.dart';
 import '../../core/app_colors.dart';
 import '../../services/explore_service.dart';
+import '../../services/place_image_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -21,9 +22,20 @@ class _HomeScreenState extends State<HomeScreen> {
   List<TouristPlace> _nearbyPlaces = [];
   bool _isLoadingPlaces = true;
 
+  // Pre-fetched image futures — stored in state so FutureBuilder
+  // doesn't recreate them on every widget rebuild.
+  static const _trendingNames = ['Manali', 'Goa', 'Jaipur'];
+  final Map<String, Future<String>> _trendingImageFutures = {};
+
   @override
   void initState() {
     super.initState();
+
+    // Kick off trending image fetches immediately, before the frame even builds
+    for (final name in _trendingNames) {
+      _trendingImageFutures[name] = PlaceImageService.fetchImageUrl(name);
+    }
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final auth = context.read<AuthProvider>();
       final groupProvider = context.read<GroupProvider>();
@@ -42,7 +54,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _fetchPlaces() async {
     try {
-      final places = await ExploreService.fetchNearbyPlaces();
+      final token = context.read<AuthProvider>().token;
+      final places = await ExploreService.fetchNearbyPlaces(token: token);
       if (mounted) {
         setState(() {
           _nearbyPlaces = places;
@@ -170,12 +183,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTrendingDestinations(AppColorScheme colors) {
-    final trending = [
-      {'name': 'Manali', 'image': 'https://picsum.photos/seed/manali/400/400'},
-      {'name': 'Goa', 'image': 'https://picsum.photos/seed/goa/400/400'},
-      {'name': 'Jaipur', 'image': 'https://picsum.photos/seed/jaipur/400/400'},
-    ];
-
+    // Trending destination names — images fetched once in initState
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -186,49 +194,59 @@ class _HomeScreenState extends State<HomeScreen> {
             scrollDirection: Axis.horizontal,
             physics: const BouncingScrollPhysics(),
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            itemCount: trending.length,
+            itemCount: _trendingNames.length,
             itemBuilder: (context, index) {
-              final place = trending[index];
+              final name = _trendingNames[index];
+              // Use the pre-created future — never recreated on rebuild
+              final future = _trendingImageFutures[name]!;
               return Container(
                 width: 140,
                 margin: const EdgeInsets.symmetric(horizontal: 8),
-                child: Stack(
-                  children: [
-                    Positioned.fill(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: _buildNetworkImage(
-                          imageUrl: place['image']!,
-                          colors: colors,
+                child: FutureBuilder<String>(
+                  future: future,
+                  builder: (context, snapshot) {
+                    final isLoading = snapshot.connectionState == ConnectionState.waiting;
+                    final imageUrl = snapshot.data ?? '';
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: _buildNetworkImage(
+                              imageUrl: imageUrl,
+                              colors: colors,
+                              isLoading: isLoading,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(20),
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            Colors.black.withValues(alpha: 0.8),
-                          ],
+                        Container(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.transparent,
+                                Colors.black.withValues(alpha: 0.8),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                    Positioned(
-                      bottom: 16,
-                      left: 16,
-                      child: Text(
-                        place['name']!,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
+                        Positioned(
+                          bottom: 16,
+                          left: 16,
+                          child: Text(
+                            name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 16,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
+                      ],
+                    );
+                  },
                 ),
               );
             },
@@ -480,15 +498,15 @@ class _HomeScreenState extends State<HomeScreen> {
                         onPressed: () {},
                       ),
                       Positioned(
-                        top: 10,
-                        right: 10,
+                        top: 6,
+                        left: 6,
                         child: Container(
-                          width: 10,
-                          height: 10,
+                          width: 12,
+                          height: 12,
                           decoration: BoxDecoration(
                             color: colors.accentSecondary,
                             shape: BoxShape.circle,
-                            border: Border.all(color: colors.surfaceColor, width: 2),
+                            border: Border.all(color: Colors.white, width: 2),
                           ),
                         ),
                       ),
@@ -1098,11 +1116,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildTripCard(GroupModel group, AppColorScheme colors, int index) {
-    final mockImages = [
-      'https://picsum.photos/seed/trip1/400/400',
-      'https://picsum.photos/seed/trip2/400/400',
-    ];
-    final imageUrl = mockImages[index % mockImages.length];
+    // Use the group's destination name and coordinates to fetch its real photo
+    final dest = group.route.destination;
+    final destinationName = dest.name.isNotEmpty ? dest.name : group.name;
+    final destLat = dest.lat;
+    final destLon = dest.lng;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1129,14 +1147,24 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(16),
-              child: Stack(
-                children: [
-                  _buildNetworkImage(
-                    imageUrl: imageUrl,
-                    width: 72,
-                    height: 72,
-                    colors: colors,
-                  ),
+              child: FutureBuilder<String>(
+                future: PlaceImageService.fetchImageUrl(
+                  destinationName,
+                  lat: destLat,
+                  lon: destLon,
+                ),
+                builder: (context, snapshot) {
+                  final isLoading = snapshot.connectionState == ConnectionState.waiting;
+                  final imageUrl = snapshot.data ?? '';
+                  return Stack(
+                    children: [
+                      _buildNetworkImage(
+                        imageUrl: imageUrl,
+                        width: 72,
+                        height: 72,
+                        colors: colors,
+                        isLoading: isLoading,
+                      ),
                   Positioned(
                     top: 6,
                     left: 6,
@@ -1151,7 +1179,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                 ],
-              ),
+              );
+            },
+          ),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -1227,7 +1257,39 @@ class _HomeScreenState extends State<HomeScreen> {
     required AppColorScheme colors,
     double? width,
     double? height,
+    bool isLoading = false,
   }) {
+    // Show placeholder spinner when explicitly loading
+    if (isLoading) {
+      return Container(
+        width: width,
+        height: height,
+        color: colors.borderColor.withValues(alpha: 0.3),
+        child: Center(
+          child: CircularProgressIndicator(
+            color: colors.accentSecondary,
+            strokeWidth: 2,
+          ),
+        ),
+      );
+    }
+
+    // Show fallback icon if loaded but URL is empty (not found/timeout)
+    if (imageUrl.isEmpty) {
+      return Container(
+        width: width,
+        height: height,
+        color: colors.borderColor.withValues(alpha: 0.3),
+        child: Center(
+          child: Icon(
+            Icons.landscape,
+            color: colors.textTertiary,
+            size: 32,
+          ),
+        ),
+      );
+    }
+
     return Image.network(
       imageUrl,
       width: width,
@@ -1242,7 +1304,8 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Center(
             child: CircularProgressIndicator(
               value: loadingProgress.expectedTotalBytes != null
-                  ? loadingProgress.cumulativeBytesLoaded / (loadingProgress.expectedTotalBytes ?? 1)
+                  ? loadingProgress.cumulativeBytesLoaded /
+                      (loadingProgress.expectedTotalBytes ?? 1)
                   : null,
               color: colors.accentSecondary,
               strokeWidth: 2,
@@ -1255,7 +1318,8 @@ class _HomeScreenState extends State<HomeScreen> {
           width: width,
           height: height,
           color: colors.borderColor.withValues(alpha: 0.3),
-          child: Icon(Icons.image_not_supported_outlined, color: colors.textTertiary),
+          child: Icon(Icons.image_not_supported_outlined,
+              color: colors.textTertiary),
         );
       },
     );

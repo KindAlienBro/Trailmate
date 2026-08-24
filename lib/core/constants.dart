@@ -4,13 +4,14 @@
 /// alert thresholds, POI categories, and map settings.
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
 class AppConstants {
   // ==================== Server ====================
   // Debug mode: Uses local network IP for physical device testing.
   // Make sure your PC is on 192.168.0.9 or update this IP.
   // Release mode: Uses Production VPS IP.
-  static const String _localServer = 'http://10.8.1.88:3000';
+  static const String _localServer = 'http://192.168.0.12:3000';
   static const String _prodServer = 'https://rouniity.onrender.com';
 
   static String get serverBaseUrl => kReleaseMode ? _prodServer : _localServer;
@@ -96,13 +97,13 @@ class AppConstants {
     },
   };
 
-  /// Icons for each POI category
-  static const Map<String, String> poiIcons = {
-    'Fuel': '⛽',
-    'Food': '🍽️',
-    'Hospital': '🏥',
-    'Hotel': '🏨',
-    'Parking': '🅿️',
+  /// Icons for each POI category (Material Design icons)
+  static const Map<String, IconData> poiIcons = {
+    'Fuel': Icons.local_gas_station_rounded,
+    'Food': Icons.restaurant_rounded,
+    'Hospital': Icons.local_hospital_rounded,
+    'Hotel': Icons.hotel_rounded,
+    'Parking': Icons.local_parking_rounded,
   };
 
   // ==================== Secure Storage Keys ====================

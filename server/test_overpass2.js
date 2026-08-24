@@ -4,9 +4,9 @@ const OVERPASS_URL = 'https://overpass-api.de/api/interpreter';
 
 const query = `[out:json][timeout:15];
   (
-    node["natural"="peak"](around:5000, 16.6089,74.7064);
+    nwr["tourism"="attraction"]["name"](around:50000, 28.6139, 77.2090);
   );
-  out body 5;`;
+  out center 5;`;
 
 async function run() {
   const headers = {
@@ -18,7 +18,7 @@ async function run() {
     const res = await axios.post(OVERPASS_URL, `data=${encodeURIComponent(query)}`, {
       headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
     });
-    console.log("Success:", res.data.elements.length);
+    console.log("Success:", JSON.stringify(res.data.elements, null, 2));
   } catch (e) {
     console.error("Failed:", e.response?.status, e.response?.statusText);
     console.error(e.response?.data);

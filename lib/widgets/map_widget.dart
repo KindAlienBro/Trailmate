@@ -140,6 +140,25 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     0, 0, 0, 1, 0,       // Alpha
   ]);
 
+  /// Finds the nearest point on the polyline for a given waypoint
+  LatLng _nearestPointOnPolyline(LatLng point, List<LatLng> polyline) {
+    if (polyline.isEmpty) return point;
+    
+    double minDist = double.infinity;
+    LatLng nearest = polyline.first;
+    
+    for (final p in polyline) {
+      final dlat = point.latitude - p.latitude;
+      final dlng = point.longitude - p.longitude;
+      final dist = dlat * dlat + dlng * dlng;
+      if (dist < minDist) {
+        minDist = dist;
+        nearest = p;
+      }
+    }
+    return nearest;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
@@ -156,6 +175,23 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
         colorFilter: _darkModeFilter,
         child: tileLayer,
       );
+    }
+
+    // Build connector polylines from waypoints to route
+    final List<Polyline<Object>> waypointConnectors = [];
+    if (widget.routePolyline.isNotEmpty) {
+      for (final wp in widget.aiWaypoints) {
+        final wpPos = LatLng(wp.lat, wp.lng);
+        final nearest = _nearestPointOnPolyline(wpPos, widget.routePolyline);
+        waypointConnectors.add(
+          Polyline(
+            points: [nearest, wpPos],
+            color: const Color(0xFF4CAF50).withValues(alpha: 0.6),
+            strokeWidth: 3.0,
+            pattern: const StrokePattern.dotted(),
+          ),
+        );
+      }
     }
 
     return FlutterMap(
@@ -186,6 +222,10 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                   ),
                 ],
               ),
+
+            // Waypoint connector lines (drawn after route so they appear on top)
+            if (waypointConnectors.isNotEmpty)
+              PolylineLayer(polylines: waypointConnectors),
 
             // Detour Polyline (yellow)
             if (widget.detourPolyline.isNotEmpty)
@@ -234,29 +274,56 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
                 ],
                 ...widget.aiWaypoints.map((wp) => Marker(
                   point: LatLng(wp.lat, wp.lng),
-                  width: 40,
-                  height: 40,
+                  width: 44,
+                  height: 44,
                   alignment: Alignment.center,
                   child: GestureDetector(
                     onTap: () => widget.onWaypointTap?.call(wp),
                     child: Container(
+                      width: 40,
+                      height: 40,
                       decoration: BoxDecoration(
-                        color: colors.cardColor.withValues(alpha: 0.9),
+                        color: Colors.white,
                         shape: BoxShape.circle,
-                        border: Border.all(color: colors.accentExtra, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                        border: Border.all(color: const Color(0xFF4CAF50), width: 2.5),
                       ),
                       child: Center(
-                        child: Text(wp.emoji, style: TextStyle(fontSize: 18)),
+                        child: Icon(wp.iconData, color: const Color(0xFF4CAF50), size: 20),
                       ),
                     ),
                   ),
                 )),
                 ...widget.nearbyPlaces.where((p) => p.lat != null && p.lng != null).map((p) => Marker(
                   point: LatLng(p.lat!, p.lng!),
-                  width: 32,
-                  height: 32,
-                  alignment: Alignment.topCenter,
-                  child: Icon(Icons.location_on, color: const Color(0xFFFFD600), size: 32),
+                  width: 44,
+                  height: 44,
+                  alignment: Alignment.center,
+                  child: Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.2),
+                          blurRadius: 6,
+                          offset: const Offset(0, 2),
+                        ),
+                      ],
+                      border: Border.all(color: const Color(0xFF4CAF50), width: 2.5),
+                    ),
+                    child: Center(
+                      child: Icon(Icons.place_rounded, color: const Color(0xFF4CAF50), size: 20),
+                    ),
+                  ),
                 )),
 
                 ...widget.memberPositions.values.map((pos) {

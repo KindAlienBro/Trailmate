@@ -606,6 +606,10 @@ class NavigationProvider extends ChangeNotifier {
     _tripStartTime = DateTime.now();
     _totalDistanceTraveled = 0;
     _currentStepIndex = 0;
+    _routeDistance = group.route.distanceMeters.toDouble();
+    _routeDuration = group.route.durationSeconds.toDouble();
+    _remainingDistance = _routeDistance;
+    _remainingDuration = _routeDuration;
     _isRerouting = false;
     _lastRerouteTime = null;
     _consecutiveOffRoute = 0;
@@ -632,6 +636,14 @@ class NavigationProvider extends ChangeNotifier {
     // Use the group's predefined route polyline initially
     if (group.route.polyline?.isNotEmpty == true) {
       _routePolyline = decodePolyline(group.route.polyline!);
+      
+      // Load steps from the group route so DirectionsBanner can display instructions
+      if (group.route.steps.isNotEmpty) {
+        _routeSteps = group.route.steps
+            .map((s) => RouteStep.fromJson(s as Map<String, dynamic>))
+            .toList();
+      }
+      
       // We do not call _calculatePersonalRoute() here if the user is the leader 
       // because we want to preserve their custom start point rather than immediately
       // routing from their current GPS location.

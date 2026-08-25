@@ -228,7 +228,11 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
 
       List<dynamic> steps = [];
       if (currentRoute['legs'] != null && currentRoute['legs'].isNotEmpty) {
-        steps = currentRoute['legs'][0]['steps'] ?? [];
+        for (final leg in currentRoute['legs']) {
+          if (leg['steps'] != null) {
+            steps.addAll(leg['steps']);
+          }
+        }
       }
 
       final groupProvider = context.read<GroupProvider>();

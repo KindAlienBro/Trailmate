@@ -264,22 +264,9 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
       }
     }
 
-    // Build connector polylines from waypoints to route
+    // (Waypoint connectors removed since AI waypoints are now natively part of the route)
     final List<Polyline<Object>> waypointConnectors = [];
-    if (polyline.isNotEmpty && group.route.aiWaypoints != null) {
-      for (final wp in group.route.aiWaypoints!) {
-        final wpPos = LatLng(wp.lat, wp.lng);
-        final nearest = _nearestPointOnPolyline(wpPos, polyline);
-        waypointConnectors.add(
-          Polyline(
-            points: [nearest, wpPos],
-            color: const Color(0xFF4CAF50).withValues(alpha: 0.6),
-            strokeWidth: 3.0,
-            pattern: const StrokePattern.dotted(),
-          ),
-        );
-      }
-    }
+
 
     final bounds = (origin != null && dest != null) ? LatLngBounds.fromPoints([origin, dest, ...polyline]) : null;
 

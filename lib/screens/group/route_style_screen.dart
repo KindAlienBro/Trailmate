@@ -486,18 +486,21 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
                   point: LatLng(wp['lat'], wp['lng']),
                   width: 32,
                   height: 32,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 200),
-                    opacity: isSelected ? 1.0 : 0.4,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E5B33), // Deep green matching the mockup
-                        shape: BoxShape.circle,
-                        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: const Center(
-                        child: Icon(Icons.location_on, color: Colors.white, size: 16),
+                  child: GestureDetector(
+                    onTap: () => _showPoiDetails(wp),
+                    child: AnimatedOpacity(
+                      duration: const Duration(milliseconds: 200),
+                      opacity: isSelected ? 1.0 : 0.4,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E5B33), // Deep green matching the mockup
+                          shape: BoxShape.circle,
+                          boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4, offset: Offset(0, 2))],
+                          border: Border.all(color: Colors.white, width: 2),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.location_on, color: Colors.white, size: 16),
+                        ),
                       ),
                     ),
                   ),

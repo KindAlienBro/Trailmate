@@ -1089,7 +1089,7 @@ router.post('/smart-route', async (req, res) => {
       finalWaypoints = aiResult.waypoints;
       finalRouteCharacter = aiResult.routeCharacter;
 
-      routingWaypoints = []; // Do not route through them by default
+      routingWaypoints = finalWaypoints.slice(0, 15); // Route through them for optimal path
 
       console.log(`[SmartRoute] Generated ${finalWaypoints.length} waypoints for ${mode}, routing via ${routingWaypoints.length}`);
     }

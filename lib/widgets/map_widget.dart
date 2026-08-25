@@ -177,22 +177,8 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
       );
     }
 
-    // Build connector polylines from waypoints to route
+    // (Waypoint connector dotted lines removed since AI waypoints are now part of the route)
     final List<Polyline<Object>> waypointConnectors = [];
-    if (widget.routePolyline.isNotEmpty) {
-      for (final wp in widget.aiWaypoints) {
-        final wpPos = LatLng(wp.lat, wp.lng);
-        final nearest = _nearestPointOnPolyline(wpPos, widget.routePolyline);
-        waypointConnectors.add(
-          Polyline(
-            points: [nearest, wpPos],
-            color: const Color(0xFF4CAF50).withValues(alpha: 0.6),
-            strokeWidth: 3.0,
-            pattern: const StrokePattern.dotted(),
-          ),
-        );
-      }
-    }
 
     return FlutterMap(
       mapController: widget.mapController,

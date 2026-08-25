@@ -1015,7 +1015,11 @@ router.post('/suggest-waypoints', async (req, res) => {
     }
 
     const params = { origin, destination, api_key: getOlaApiKey(), steps: true, alternatives: true };
-    if (transportMode) params.mode = transportMode;
+    if (transportMode) {
+      if (transportMode === 'two_wheeler' || transportMode === 'bike') params.mode = 'bicycle';
+      else if (transportMode === 'walking' || transportMode === 'walk') params.mode = 'pedestrian';
+      else params.mode = transportMode;
+    }
 
     const initialRouteResponse = await axios.post(`${OLA_BASE_URL}/routing/v1/directions`, null, {
       params,
@@ -1049,7 +1053,11 @@ router.post('/smart-route', async (req, res) => {
     const [destLat, destLng] = destination.split(',').map(Number);
 
     const params = { origin, destination, api_key: getOlaApiKey(), steps: true, alternatives: true };
-    if (transportMode) params.mode = transportMode;
+    if (transportMode) {
+      if (transportMode === 'two_wheeler' || transportMode === 'bike') params.mode = 'bicycle';
+      else if (transportMode === 'walking' || transportMode === 'walk') params.mode = 'pedestrian';
+      else params.mode = transportMode;
+    }
 
     // STEP 1: Fetch baseline route from Ola Maps to get the exact road polyline
     const initialRouteResponse = await axios.post(`${OLA_BASE_URL}/routing/v1/directions`, null, {
@@ -1090,7 +1098,12 @@ router.post('/smart-route', async (req, res) => {
     const waypointsStr = routingWaypoints.map((wp) => `${wp.lat},${wp.lng}`).join('|');
 
     let url = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true&alternatives=true`;
-    if (transportMode) url += `&mode=${transportMode}`;
+    if (transportMode) {
+      let mappedMode = transportMode;
+      if (transportMode === 'two_wheeler' || transportMode === 'bike') mappedMode = 'bicycle';
+      else if (transportMode === 'walking' || transportMode === 'walk') mappedMode = 'pedestrian';
+      url += `&mode=${mappedMode}`;
+    }
     if (waypointsStr) url += `&waypoints=${waypointsStr}`;
 
     const finalResponse = await axios.post(url, null, {
@@ -1112,7 +1125,12 @@ router.post('/smart-route', async (req, res) => {
     try {
       const { origin, destination, transportMode } = req.body;
       let fallbackUrl = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true&alternatives=true`;
-      if (transportMode) fallbackUrl += `&mode=${transportMode}`;
+      if (transportMode) {
+        let mappedMode = transportMode;
+        if (transportMode === 'two_wheeler' || transportMode === 'bike') mappedMode = 'bicycle';
+        else if (transportMode === 'walking' || transportMode === 'walk') mappedMode = 'pedestrian';
+        fallbackUrl += `&mode=${mappedMode}`;
+      }
 
       const fallback = await axios.post(fallbackUrl, null, { timeout: 15000 });
       return res.json({

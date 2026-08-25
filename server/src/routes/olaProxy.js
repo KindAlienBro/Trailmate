@@ -160,7 +160,13 @@ router.post('/directions', async (req, res) => {
       steps: true,
     };
     if (mode) {
-      params.mode = mode;
+      if (mode === 'two_wheeler' || mode === 'bike') {
+        params.mode = 'bicycle';
+      } else if (mode === 'walking' || mode === 'walk') {
+        params.mode = 'pedestrian';
+      } else {
+        params.mode = mode;
+      }
     }
     if (waypoints) {
       const wpArray = waypoints.split('|');

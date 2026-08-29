@@ -295,18 +295,9 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
           onPressed: () => Navigator.of(context).pop(),
         ),
         title: Image.asset(
-          Theme.of(context).brightness == Brightness.dark
-              ? 'assets/logo_dark.png'
-              : 'assets/logo_light.png',
-          height: 48,
-          errorBuilder: (context, error, stackTrace) => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.terrain_rounded, color: colors.accentSecondary, size: 28),
-              const SizedBox(width: 6),
-              Text('RoUniity', style: TextStyle(color: colors.textPrimary, fontWeight: FontWeight.bold, fontSize: 18)),
-            ],
-          ),
+          'assets/logo_transparent.png',
+          height: 32,
+          fit: BoxFit.contain,
         ),
         centerTitle: true,
       ),

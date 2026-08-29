@@ -29,6 +29,22 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null, // URL to avatar image
   },
+  trips: {
+    type: Number,
+    default: 0,
+  },
+  kmTravelled: {
+    type: Number,
+    default: 0,
+  },
+  badges: {
+    type: Number,
+    default: 0,
+  },
+  title: {
+    type: String,
+    default: 'Novice Traveler',
+  },
 }, {
   timestamps: true,
 });

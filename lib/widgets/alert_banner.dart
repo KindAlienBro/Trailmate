@@ -34,27 +34,22 @@ class AlertBanner extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(left: 16, right: 72, top: 8, bottom: 8),
-      child: ClipRRect(
+      decoration: BoxDecoration(
+        color: const Color(0xFF2A2E33), // Darker solid background resembling the image
         borderRadius: BorderRadius.circular(32),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-          child: Container(
-            decoration: BoxDecoration(
-              color: colors.cardColor.withValues(alpha: 0.8),
-              borderRadius: BorderRadius.circular(32),
-              border: Border.all(color: color.withValues(alpha: 0.5), width: 1.5),
-              boxShadow: [
-                BoxShadow(
-                  color: color.withValues(alpha: 0.2),
-                  blurRadius: 16,
-                  offset: Offset(0, 4),
-                ),
-              ],
-            ),
+        border: Border.all(color: colors.borderColor.withValues(alpha: 0.5), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.2),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
       child: Material(
         color: Colors.transparent,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           child: Row(
             children: [
               Container(
@@ -63,57 +58,69 @@ class AlertBanner extends StatelessWidget {
                   color: color.withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, color: color, size: 24),
+                child: Icon(icon, color: color, size: 22),
               ),
-              SizedBox(width: 16),
+              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      title,
+                      title.toUpperCase() + (isRegroup ? ' REQUESTED' : ''),
                       style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
                         color: color,
-                        letterSpacing: 1.2,
+                        letterSpacing: 0.8,
                       ),
                     ),
-                    SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Text(
-                      '${alert.name}: ${alert.message}',
-                      style: TextStyle(
-                        fontSize: 14,
+                      (isRegroup || isStopRequest)
+                          ? '${alert.name} wants to ${isRegroup ? 'regroup' : 'stop'} here.'
+                          : '${alert.name}: ${alert.message}',
+                      style: const TextStyle(
+                        fontSize: 13,
                         fontWeight: FontWeight.w500,
-                        color: colors.textPrimary,
+                        color: Colors.white,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ),
               if (alert.onNavigate != null)
-                TextButton(
-                  onPressed: () {
-                    alert.onNavigate!();
-                    onDismiss();
-                  },
-                  style: TextButton.styleFrom(
-                    foregroundColor: color,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: TextButton(
+                    onPressed: () {
+                      alert.onNavigate!();
+                      onDismiss();
+                    },
+                    style: TextButton.styleFrom(
+                      backgroundColor: color.withValues(alpha: 0.2),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    child: const Text('NAVIGATE', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 11)),
                   ),
-                  child: const Text('NAVIGATE', style: TextStyle(fontWeight: FontWeight.w800)),
                 ),
               IconButton(
                 onPressed: onDismiss,
-                icon: Icon(Icons.close_rounded, color: colors.textSecondary),
+                icon: const Icon(Icons.close_rounded, color: Colors.white70, size: 20),
+                constraints: const BoxConstraints(),
+                padding: const EdgeInsets.only(left: 12, right: 4),
               ),
             ],
           ),
         ),
-      ),
-      ),
-      ),
       ),
     );
   }

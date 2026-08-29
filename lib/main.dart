@@ -17,12 +17,17 @@ import 'screens/group/create_group_screen.dart';
 import 'screens/group/join_group_screen.dart';
 import 'screens/group/group_lobby_screen.dart';
 import 'screens/navigation/live_navigation_screen.dart';
+import 'screens/settings/feedback_screen.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
   await OlaTileProxy.start();
+  
+  await FMTCObjectBoxBackend().initialise();
+  await const FMTCStore('mapStore').manage.create();
   
   final themeProvider = ThemeProvider();
   await themeProvider.initialize();
@@ -81,6 +86,8 @@ class RoUniityApp extends StatelessWidget {
           case '/live-navigation':
             final groupId = settings.arguments as String;
             return MaterialPageRoute(builder: (_) => LiveNavigationScreen(groupId: groupId), settings: settings);
+          case '/feedback':
+            return MaterialPageRoute(builder: (_) => FeedbackScreen(), settings: settings);
           default:
             return MaterialPageRoute(
               builder: (_) => Scaffold(

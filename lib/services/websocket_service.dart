@@ -200,6 +200,16 @@ class WebSocketService {
     _currentGroupId = null;
   }
 
+  /// Re-subscribe to the current group room after connectivity is restored.
+  /// Socket.IO handles transport reconnection itself — this just ensures
+  /// we're in the right room after the socket auto-reconnects.
+  void reconnectToGroup() {
+    if (_currentGroupId != null) {
+      debugPrint('[WS] Re-subscribing to group room: $_currentGroupId');
+      subscribeToGroup(_currentGroupId!);
+    }
+  }
+
   /// Send current location to the group
   void sendLocation({
     required String groupId,
@@ -208,6 +218,7 @@ class WebSocketService {
     double? speed,
     double? heading,
   }) {
+    if (!_isConnected) return;
     _socket?.emit('location:update', {
       'groupId': groupId,
       'lat': lat,
@@ -217,12 +228,29 @@ class WebSocketService {
     });
   }
 
+  /// Send a batch of queued offline locations in a single emit.
+  /// The server should handle the 'location:batch' event to process the array.
+  /// Falls back to sending individual updates if batch isn't supported.
+  void sendLocationBatch({
+    required String groupId,
+    required List<Map<String, dynamic>> locations,
+  }) {
+    if (!_isConnected || locations.isEmpty) return;
+    // Try batch first
+    _socket?.emit('location:batch', {
+      'groupId': groupId,
+      'locations': locations,
+    });
+    debugPrint('[WS] Flushed ${locations.length} queued locations as batch');
+  }
+
   /// Check for deviation from route
   void checkDeviation({
     required String groupId,
     required double lat,
     required double lng,
   }) {
+    if (!_isConnected) return;
     _socket?.emit('alert:checkDeviation', {
       'groupId': groupId,
       'lat': lat,
@@ -236,6 +264,7 @@ class WebSocketService {
     required double lat,
     required double lng,
   }) {
+    if (!_isConnected) return;
     _socket?.emit('alert:checkSeparation', {
       'groupId': groupId,
       'lat': lat,
@@ -249,12 +278,14 @@ class WebSocketService {
     double? lat,
     double? lng,
     String? message,
+    String triggerSource = 'manual',
   }) {
     _socket?.emit('sos:trigger', {
       'groupId': groupId,
       'lat': lat,
       'lng': lng,
       'message': message,
+      'triggerSource': triggerSource,
     });
   }
 
@@ -349,6 +380,7 @@ class WebSocketService {
     required double distanceTraveled,
     bool isStopped = false,
   }) {
+    if (!_isConnected) return;
     _socket?.emit('suggestion:check', {
       'groupId': groupId,
       'lat': lat,

@@ -111,7 +111,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       'Sign in to continue your journey with your group.',
                       style: TextStyle(
                         fontSize: 14,
-                        color: textGray,
+                        color: textWhite,
                       ),
                     ),
                     const SizedBox(height: 24),

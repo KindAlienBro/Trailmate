@@ -333,7 +333,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               borderRadius: BorderRadius.circular(12),
                             ),
                             child: Text(
-                              'Pro Traveler',
+                              user?.title ?? 'Novice Traveler',
                               style: TextStyle(color: colors.accentSecondary, fontSize: 12, fontWeight: FontWeight.w600),
                             ),
                           ),
@@ -347,11 +347,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Row(
                   children: [
-                    _buildStatCard('12', 'Trips', colors),
+                    _buildStatCard('${user?.trips ?? 0}', 'Trips', colors),
                     const SizedBox(width: 16),
-                    _buildStatCard('3,450', 'km Travelled', colors),
+                    _buildStatCard('${user?.kmTravelled ?? 0}', 'km Travelled', colors),
                     const SizedBox(width: 16),
-                    _buildStatCard('8', 'Badges', colors),
+                    _buildStatCard('${user?.badges ?? 0}', 'Badges', colors),
                   ],
                 ),
               ),
@@ -394,11 +394,20 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSettingsList(AppColorScheme colors, AuthProvider auth) {
     return Column(
       children: [
-        _buildSettingsItem(Icons.person_outline, 'Account Settings', colors),
-        _buildSettingsItem(Icons.notifications_outlined, 'Notifications', colors),
+        _buildSettingsItem(Icons.person_outline, 'Account Settings', colors, onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Account Settings coming soon!')));
+        }),
+        _buildSettingsItem(Icons.notifications_outlined, 'Notifications', colors, onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Notifications coming soon!')));
+        }),
         _buildSettingsItem(Icons.palette_outlined, 'Appearance', colors, onTap: () => ThemeSwitcherSheet.show(context)),
-        _buildSettingsItem(Icons.shield_outlined, 'Privacy & Security', colors),
-        _buildSettingsItem(Icons.help_outline, 'Help & Support', colors),
+        _buildSettingsItem(Icons.shield_outlined, 'Privacy & Security', colors, onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Privacy & Security coming soon!')));
+        }),
+        _buildSettingsItem(Icons.help_outline, 'Help & Support', colors, onTap: () {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Help & Support coming soon!')));
+        }),
+        _buildSettingsItem(Icons.feedback_outlined, 'Give Feedback', colors, onTap: () => Navigator.of(context).pushNamed('/feedback')),
         const Padding(
           padding: EdgeInsets.symmetric(horizontal: 20),
           child: Divider(height: 32),
@@ -450,41 +459,16 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Row(
                 children: [
-                  Image.asset(
-                    'assets/logo.png',
-                    height: 40,
-                    errorBuilder: (context, error, stackTrace) => FittedBox(
-                      fit: BoxFit.scaleDown,
-                      child: Row(
-                        children: [
-                          Icon(Icons.terrain_rounded, color: colors.accentSecondary, size: 36),
-                          const SizedBox(width: 8),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                'RoUniity',
-                                style: TextStyle(
-                                  fontSize: 22,
-                                  fontWeight: FontWeight.bold,
-                                  color: colors.textPrimary,
-                                  letterSpacing: -0.5,
-                                ),
-                              ),
-                              Text(
-                                'EXPLORE TOGETHER',
-                                style: TextStyle(
-                                  fontSize: 8,
-                                  fontWeight: FontWeight.w700,
-                                  color: colors.textSecondary,
-                                  letterSpacing: 1.2,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      children: [
+                        Image.asset(
+                          'assets/logo_transparent.png',
+                          height: 40,
+                          fit: BoxFit.contain,
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -546,7 +530,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildGreeting(AppColorScheme colors) {
     return Consumer<AuthProvider>(
       builder: (context, auth, _) {
-        final name = auth.currentUser?.name ?? 'Dev';
+        final name = auth.currentUser?.name ?? 'Traveler';
+        
+        final hour = DateTime.now().hour;
+        String greeting = 'Good evening';
+        if (hour < 12) {
+          greeting = 'Good morning';
+        } else if (hour < 17) {
+          greeting = 'Good afternoon';
+        }
+
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
           child: Column(
@@ -555,7 +548,7 @@ class _HomeScreenState extends State<HomeScreen> {
               Row(
                 children: [
                   Text(
-                    'Good morning, $name!',
+                    '$greeting, $name!',
                     style: TextStyle(
                       fontSize: 26,
                       fontWeight: FontWeight.bold,
@@ -806,7 +799,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildContinueJourney(AppColorScheme colors) {
     return Consumer<GroupProvider>(
       builder: (context, groupProvider, _) {
-        final activeGroups = groupProvider.myGroups.where((g) => g.status != 'completed').toList();
+        final currentUserId = context.read<AuthProvider>().currentUser?.id ?? '';
+        final activeGroups = groupProvider.myGroups.where((g) {
+          final isParticipant = g.isLeader(currentUserId) || g.isMember(currentUserId);
+          return g.status != 'completed' && isParticipant;
+        }).toList();
         
         if (activeGroups.isEmpty) {
           return const SizedBox.shrink(); // Hide section if no active trips
@@ -1089,7 +1086,12 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             }
 
-            if (groupProvider.myGroups.isEmpty) {
+            final currentUserId = context.read<AuthProvider>().currentUser?.id ?? '';
+            final userGroups = groupProvider.myGroups.where((g) {
+              return g.isLeader(currentUserId) || g.isMember(currentUserId);
+            }).toList();
+
+            if (userGroups.isEmpty) {
               return Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 child: Text(
@@ -1103,9 +1105,9 @@ class _HomeScreenState extends State<HomeScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               physics: const NeverScrollableScrollPhysics(),
               shrinkWrap: true,
-              itemCount: groupProvider.myGroups.length,
+              itemCount: userGroups.length,
               itemBuilder: (context, index) {
-                final group = groupProvider.myGroups[index];
+                final group = userGroups[index];
                 return _buildTripCard(group, colors, index);
               },
             );

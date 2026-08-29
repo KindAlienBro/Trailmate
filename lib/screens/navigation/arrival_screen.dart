@@ -7,12 +7,14 @@ import '../../core/theme.dart';
 class ArrivalScreen extends StatefulWidget {
   final double totalDistance; // meters
   final Duration tripDuration;
+  final String? destinationName;
   final VoidCallback onDone;
 
   ArrivalScreen({
     super.key,
     required this.totalDistance,
     required this.tripDuration,
+    this.destinationName,
     required this.onDone,
   });
 
@@ -156,10 +158,13 @@ class _ArrivalScreenState extends State<ArrivalScreen> with TickerProviderStateM
                       ),
                       SizedBox(height: 8),
                       Text(
-                        'Trip completed',
+                        widget.destinationName != null && widget.destinationName!.isNotEmpty
+                            ? 'You have reached your set ${widget.destinationName} destination.'
+                            : 'Trip completed',
+                        textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 16,
-                          color: Colors.white.withValues(alpha: 0.6),
+                          color: Colors.white.withValues(alpha: 0.8),
                           fontWeight: FontWeight.w500,
                         ),
                       ),

@@ -22,6 +22,7 @@ import '../../widgets/map_widget.dart';
 import '../../widgets/compass_speedometer.dart';
 import '../../widgets/quick_stops_bar.dart';
 import 'arrival_screen.dart';
+import 'auto_sos_countdown_screen.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme.dart';
 
@@ -50,6 +51,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   
   StreamSubscription? _positionSub;
   StreamSubscription? _compassSub;
+  StreamSubscription? _fallSignalSub;
   double _deviceHeading = 0.0;
   bool _hasCalculatedPreview = false;
   bool _userPannedMap = false; // Track if user dragged the map
@@ -121,8 +123,20 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
         }
       });
       
+      
       // Listen to nav provider changes to trigger preview when route is generated
       nav.addListener(_onNavProviderChanged);
+      
+      // Listen to automatic fall detection signal
+      _fallSignalSub = nav.onFallSignal.listen((_) {
+        if (mounted) {
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => AutoSosCountdownScreen(groupId: widget.groupId),
+            ),
+          );
+        }
+      });
     });
   }
 
@@ -191,6 +205,7 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
   void dispose() {
     _positionSub?.cancel();
     _compassSub?.cancel();
+    _fallSignalSub?.cancel();
     _mapAnimController?.dispose();
     _navProvider?.removeListener(_onNavProviderChanged);
     super.dispose();
@@ -565,16 +580,62 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                     if (_navState == NavigationState.active) {
                       return Align(
                         alignment: isLand ? Alignment.topLeft : Alignment.topCenter,
-                        child: navProvider.isRerouting
-                          ? ReroutingBanner()
-                          : DirectionsBanner(
-                              currentStep: navProvider.upcomingStep ?? navProvider.currentStep,
-                              upcomingStep: navProvider.nextUpcomingStep,
-                              distanceToNextManeuver: navProvider.distanceToNextStep,
-                              detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
-                              distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
-                              isLandscape: isLand,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: isLand ? CrossAxisAlignment.start : CrossAxisAlignment.center,
+                          children: [
+                            navProvider.isRerouting
+                                ? ReroutingBanner()
+                                : DirectionsBanner(
+                                    currentStep: navProvider.upcomingStep ?? navProvider.currentStep,
+                                    upcomingStep: navProvider.nextUpcomingStep,
+                                    distanceToNextManeuver: navProvider.distanceToNextStep,
+                                    detourCurrentStep: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first : null,
+                                    distanceToDetourManeuver: navProvider.detourSteps.isNotEmpty ? navProvider.detourSteps.first.distance.toDouble() : 0.0,
+                                    isLandscape: isLand,
+                                  ),
+                            // Offline Banner
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 300),
+                              child: navProvider.isOffline
+                                  ? Container(
+                                      margin: EdgeInsets.only(
+                                        top: 8,
+                                        left: isLand ? 16 : 16,
+                                        right: 16,
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent.shade700,
+                                        borderRadius: BorderRadius.circular(12),
+                                        boxShadow: [
+                                          BoxShadow(
+                                            color: Colors.black26,
+                                            blurRadius: 8,
+                                            offset: const Offset(0, 4),
+                                          ),
+                                        ],
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [
+                                          Icon(Icons.cloud_off, color: Colors.white, size: 20),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Offline — GPS navigation active',
+                                            style: TextStyle(
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    )
+                                  : const SizedBox.shrink(),
                             ),
+                          ],
+                        ),
                       );
                     }
                     
@@ -1108,14 +1169,9 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   tripDuration: navProvider.tripStartTime != null 
                       ? DateTime.now().difference(navProvider.tripStartTime!)
                       : Duration.zero,
+                  destinationName: navProvider.selectedStop?.name ?? groupProvider.currentGroup?.route.destination.name,
                   onDone: () {
                     navProvider.dismissArrival();
-                    navProvider.stopNavigation();
-                    setState(() {
-                      _navState = NavigationState.browsing;
-                      _mapOrientation = MapOrientation.free;
-                    });
-                    Navigator.of(context).pushReplacementNamed('/home');
                   },
                 ),
             ],

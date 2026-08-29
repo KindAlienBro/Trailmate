@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../core/theme.dart';
@@ -85,7 +86,7 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
       final prevPos = _previousPositions[userId];
 
       if (prevPos != null && (prevPos.latitude != newPos.latitude || prevPos.longitude != newPos.longitude)) {
-        _animateMarker(userId, prevPos, newPos);
+        _animateMarker(userId, newPos);
       } else {
         _animatedPositions[userId] = newPos;
       }
@@ -93,17 +94,19 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     }
   }
 
-  void _animateMarker(String userId, LatLng from, LatLng to) {
+  void _animateMarker(String userId, LatLng to) {
+    final currentPos = _animatedPositions[userId] ?? to;
+
     _positionAnimControllers[userId]?.dispose();
 
     final controller = AnimationController(
-      duration: Duration(milliseconds: 800),
+      duration: const Duration(milliseconds: 800),
       vsync: this,
     );
 
-    final latTween = Tween<double>(begin: from.latitude, end: to.latitude);
-    final lngTween = Tween<double>(begin: from.longitude, end: to.longitude);
-    final curved = CurvedAnimation(parent: controller, curve: Curves.easeInOut);
+    final latTween = Tween<double>(begin: currentPos.latitude, end: to.latitude);
+    final lngTween = Tween<double>(begin: currentPos.longitude, end: to.longitude);
+    final curved = CurvedAnimation(parent: controller, curve: Curves.linear);
 
     controller.addListener(() {
       setState(() {
@@ -166,7 +169,8 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     // Build the tile layer
     Widget tileLayer = TileLayer(
       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-      userAgentPackageName: 'com.example.trialmate',
+      userAgentPackageName: 'com.vorniity.rouniity',
+      tileProvider: const FMTCStore('mapStore').getTileProvider(),
     );
 
     // Wrap in color filter for dark mode

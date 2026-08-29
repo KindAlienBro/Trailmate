@@ -2,9 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:geolocator/geolocator.dart';
 import '../services/websocket_service.dart';
 import '../services/location_service.dart';
 import '../services/ola_maps_service.dart';
+import '../services/connectivity_service.dart';
+import '../services/offline_cache_service.dart';
+import '../services/fall_detection_service.dart';
+import '../services/shake_detection_service.dart';
 import '../providers/group_provider.dart';
 import '../utils/polyline_decoder.dart';
 import '../widgets/suggestion_card.dart';
@@ -24,7 +30,12 @@ class NavigationProvider extends ChangeNotifier {
   final WebSocketService _wsService = WebSocketService();
   final LocationService _locationService = LocationService();
   final OlaMapsService _olaMapsService = OlaMapsService();
+  final ConnectivityService _connectivityService = ConnectivityService();
+  final OfflineCacheService _offlineCacheService = OfflineCacheService();
+  final FallDetectionService _fallDetectionService = FallDetectionService();
+  final ShakeDetectionService _shakeDetectionService = ShakeDetectionService();
   final FlutterTts _tts = FlutterTts();
+  final FlutterLocalNotificationsPlugin _localNotifications = FlutterLocalNotificationsPlugin();
 
   // Subscriptions
   final List<StreamSubscription> _subscriptions = [];
@@ -56,6 +67,7 @@ class NavigationProvider extends ChangeNotifier {
   bool _isRerouting = false;
   DateTime? _lastRerouteTime;
   int _consecutiveOffRoute = 0; // Tracks consecutive off-route GPS readings
+  int _consecutiveWrongWay = 0; // Tracks consecutive wrong-way driving readings
   static const _rerouteCooldown = Duration(seconds: 10);
   static const _deviationThreshold = 15.0; // meters — perpendicular to segment
 
@@ -82,6 +94,11 @@ class NavigationProvider extends ChangeNotifier {
   NearbyPlace? _selectedStop;
   String? _activeStopCategory;
   String _runtimeTransportMode = 'driving';
+
+  // Offline Navigation
+  bool _isOffline = false;
+  bool _hasSpokenOfflineWarning = false; // "Rerouting unavailable offline" — speak once per offline stretch
+  bool _wasOffRouteWhenOffline = false; // Track if user deviated while offline, for reroute on reconnect
 
   // Getters
   WebSocketService get wsService => _wsService;
@@ -118,6 +135,10 @@ class NavigationProvider extends ChangeNotifier {
   List<RouteStep> get detourSteps => _detourSteps;
   NearbyPlace? get selectedStop => _selectedStop;
   String? get activeStopCategory => _activeStopCategory;
+  bool get isOffline => _isOffline;
+
+  final StreamController<bool> _fallSignalController = StreamController<bool>.broadcast();
+  Stream<bool> get onFallSignal => _fallSignalController.stream;
 
   /// Initialize with auth token
   void initialize(String token, String currentUserId, String currentUserName) {
@@ -127,6 +148,176 @@ class NavigationProvider extends ChangeNotifier {
     _wsService.connect(token);
     _setupListeners();
     _initTts();
+    _setupConnectivityListener();
+    _initNotifications();
+    _setupFallDetection();
+    _setupShakeDetection();
+  }
+
+  void _initNotifications() async {
+    const AndroidInitializationSettings initSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+    const InitializationSettings initSettings = InitializationSettings(android: initSettingsAndroid);
+    await _localNotifications.initialize(settings: initSettings);
+  }
+
+  void _setupFallDetection() {
+    _subscriptions.add(
+      _fallDetectionService.onFallDetected.listen((_) async {
+        debugPrint('[NavigationProvider] Fall detected! Triggering UI and Screen Wake');
+        
+        // Notify UI to push countdown screen
+        _fallSignalController.add(true);
+
+        // Wake screen using full-screen intent
+        const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+          'sos_channel', 
+          'SOS Alerts',
+          channelDescription: 'Automatic SOS fall detection',
+          importance: Importance.max,
+          priority: Priority.high,
+          fullScreenIntent: true,
+          visibility: NotificationVisibility.public,
+        );
+        const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+        await _localNotifications.show(
+          id: 888, 
+          title: 'Fall Detected', 
+          body: 'Automatic SOS will be triggered.', 
+          notificationDetails: platformDetails,
+        );
+      })
+    );
+  }
+
+  void _setupShakeDetection() {
+    _subscriptions.add(
+      _shakeDetectionService.onShakeDetected.listen((_) async {
+        debugPrint('[NavigationProvider] Shake detected! Triggering UI and Screen Wake');
+        
+        // Notify UI to push countdown screen
+        _fallSignalController.add(true);
+
+        // Wake screen using full-screen intent
+        const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+          'sos_channel', 
+          'SOS Alerts',
+          channelDescription: 'Automatic SOS shake detection',
+          importance: Importance.max,
+          priority: Priority.high,
+          fullScreenIntent: true,
+          visibility: NotificationVisibility.public,
+        );
+        const NotificationDetails platformDetails = NotificationDetails(android: androidDetails);
+        await _localNotifications.show(
+          id: 889, 
+          title: 'Shake Detected', 
+          body: 'Automatic SOS will be triggered.', 
+          notificationDetails: platformDetails,
+        );
+      })
+    );
+  }
+
+  /// Listen to connectivity changes and handle offline/online transitions.
+  void _setupConnectivityListener() {
+    _connectivityService.initialize();
+
+    _subscriptions.add(
+      _connectivityService.onConnectivityChanged.listen((online) {
+        final wasOffline = _isOffline;
+        _isOffline = !online;
+        notifyListeners();
+
+        if (online && wasOffline && _isNavigating) {
+          // ── Connectivity restored while navigating ──
+          debugPrint('[Navigation] Connectivity restored — recovering...');
+          _queueSpeak('Connection restored.', priority: TtsPriority.normal);
+          
+          _activeAlerts.add(AlertData(
+            type: 'network',
+            userId: 'system',
+            name: 'System',
+            message: 'Connection restored!',
+            timestamp: DateTime.now(),
+          ));
+          notifyListeners();
+
+          // Re-subscribe to WebSocket group room
+          _wsService.reconnectToGroup();
+
+          // Flush offline location queue as a batch
+          _flushOfflineLocationQueue();
+
+          // Reroute if user was off-route while offline
+          if (_wasOffRouteWhenOffline && !_isRerouting) {
+            debugPrint('[Navigation] User was off-route while offline. Triggering reroute.');
+            _wasOffRouteWhenOffline = false;
+            _calculatePersonalRoute();
+          }
+
+          // Reset offline warning flag for next offline stretch
+          _hasSpokenOfflineWarning = false;
+        } else if (!online && _isNavigating) {
+          // ── Going offline while navigating ──
+          debugPrint('[Navigation] Went offline — switching to GPS-only navigation.');
+          _queueSpeak('You are offline. GPS navigation is still active.', priority: TtsPriority.high);
+
+          // Cache the current route to disk so it survives app kill
+          _cacheCurrentRoute();
+        }
+      }),
+    );
+  }
+
+  /// Flush the persisted offline location queue to the server as a batch.
+  Future<void> _flushOfflineLocationQueue() async {
+    try {
+      final queue = await _offlineCacheService.loadLocationQueue();
+      if (queue.isEmpty || _currentGroupId == null) return;
+
+      debugPrint('[Navigation] Flushing ${queue.length} queued locations...');
+      _wsService.sendLocationBatch(
+        groupId: _currentGroupId!,
+        locations: queue,
+      );
+
+      await _offlineCacheService.clearLocationQueue();
+    } catch (e) {
+      debugPrint('[Navigation] Failed to flush location queue: $e');
+    }
+  }
+
+  /// Cache the current route data to disk for offline survival.
+  Future<void> _cacheCurrentRoute() async {
+    if (_navigatingGroup == null || _routeSteps.isEmpty) return;
+
+    try {
+      final stepsJson = _routeSteps.map((s) => {
+        'distance': s.distance,
+        'duration': s.duration,
+        'instruction': s.instruction,
+        'maneuver': s.maneuverType,
+        'start_location': {'lat': s.location.latitude, 'lng': s.location.longitude},
+        'end_location': {'lat': s.endLocation.latitude, 'lng': s.endLocation.longitude},
+      }).toList();
+
+      await _offlineCacheService.cacheActiveRoute(
+        groupId: _currentGroupId ?? '',
+        polyline: _navigatingGroup!.route.polyline ?? '',
+        steps: stepsJson,
+        destinationName: _navigatingGroup!.route.destination.name,
+        destinationLat: _navigatingGroup!.route.destination.lat ?? 0,
+        destinationLng: _navigatingGroup!.route.destination.lng ?? 0,
+        originName: _navigatingGroup!.route.origin.name,
+        originLat: _navigatingGroup!.route.origin.lat ?? 0,
+        originLng: _navigatingGroup!.route.origin.lng ?? 0,
+        distance: _routeDistance,
+        duration: _routeDuration,
+        transportMode: _runtimeTransportMode,
+      );
+    } catch (e) {
+      debugPrint('[Navigation] Failed to cache route: $e');
+    }
   }
 
   /// Initialize TTS engine
@@ -418,54 +609,97 @@ class NavigationProvider extends ChangeNotifier {
           );
           notifyListeners();
 
-          // 2. Broadcast to others
-          _wsService.sendLocation(
-            groupId: _currentGroupId!,
-            lat: position.latitude,
-            lng: position.longitude,
-            speed: position.speed * 3.6, // m/s → km/h
-            heading: position.heading,
-          );
+          // 2. Broadcast to others (or queue if offline)
+          if (!_isOffline) {
+            _wsService.sendLocation(
+              groupId: _currentGroupId!,
+              lat: position.latitude,
+              lng: position.longitude,
+              speed: position.speed * 3.6, // m/s → km/h
+              heading: position.heading,
+            );
+          } else {
+            // Persist to disk queue (survives app kill)
+            _offlineCacheService.enqueueLocation({
+              'groupId': _currentGroupId!,
+              'lat': position.latitude,
+              'lng': position.longitude,
+              'speed': position.speed * 3.6,
+              'heading': position.heading,
+              'timestamp': DateTime.now().toIso8601String(),
+            });
+          }
 
-          // 3. Check deviation and separation
-          _wsService.checkDeviation(
-            groupId: _currentGroupId!,
-            lat: position.latitude,
-            lng: position.longitude,
-          );
-          _wsService.checkSeparation(
-            groupId: _currentGroupId!,
-            lat: position.latitude,
-            lng: position.longitude,
-          );
+          // 3. Check deviation and separation (server-side, skip when offline)
+          if (!_isOffline) {
+            _wsService.checkDeviation(
+              groupId: _currentGroupId!,
+              lat: position.latitude,
+              lng: position.longitude,
+            );
+            _wsService.checkSeparation(
+              groupId: _currentGroupId!,
+              lat: position.latitude,
+              lng: position.longitude,
+            );
+          }
 
           // 4. Check deviation from route (Off-route auto-rerouting)
           if (_routePolyline.isNotEmpty && !_isRerouting) {
             // Calculate perpendicular distance to nearest polyline SEGMENT (not just vertices)
             final minDistance = _distanceToPolyline(position.latitude, position.longitude);
+            final isWrongWay = _isWrongWay(position, minDistance);
             
             // If user is more than threshold off the nearest route segment, trigger reroute
             if (minDistance > _deviationThreshold) {
               _consecutiveOffRoute++;
+              _consecutiveWrongWay = 0;
               
               // Only reroute after 3 consecutive off-route readings (prevents GPS noise)
               if (_consecutiveOffRoute >= 3) {
-                final now = DateTime.now();
-                if (_lastRerouteTime == null || now.difference(_lastRerouteTime!) > _rerouteCooldown) {
-                  _lastRerouteTime = now;
-                  _isRerouting = true;
-                  _consecutiveOffRoute = 0;
-                  notifyListeners();
-                  debugPrint('[Navigation] User is ${minDistance.toStringAsFixed(1)}m off route for 3+ readings. Rerouting...');
-                  _queueSpeak('Rerouting', priority: TtsPriority.normal);
-                  _calculatePersonalRoute().whenComplete(() {
-                    _isRerouting = false;
+                if (_isOffline) {
+                  // Offline: can't reroute, speak warning ONCE per offline stretch
+                  if (!_hasSpokenOfflineWarning) {
+                    _hasSpokenOfflineWarning = true;
+                    _wasOffRouteWhenOffline = true;
+                    _queueSpeak('You are off route. Rerouting is unavailable offline.', priority: TtsPriority.high);
+                  }
+                } else {
+                  // Online: normal rerouting logic
+                  final now = DateTime.now();
+                  if (_lastRerouteTime == null || now.difference(_lastRerouteTime!) > _rerouteCooldown) {
+                    _lastRerouteTime = now;
+                    _isRerouting = true;
+                    _consecutiveOffRoute = 0;
                     notifyListeners();
-                  });
+                    debugPrint('[Navigation] User is ${minDistance.toStringAsFixed(1)}m off route for 3+ readings. Rerouting...');
+                    _queueSpeak('Rerouting', priority: TtsPriority.normal);
+                    _calculatePersonalRoute().whenComplete(() {
+                      _isRerouting = false;
+                      notifyListeners();
+                    });
+                  }
                 }
               }
             } else {
               _consecutiveOffRoute = 0; // Reset counter when back on route
+              
+              if (isWrongWay) {
+                _consecutiveWrongWay++;
+                if (_consecutiveWrongWay == 3) {
+                  _queueSpeak('You are going the wrong way. Please turn around.', priority: TtsPriority.high);
+                } else if (_consecutiveWrongWay > 3 && _consecutiveWrongWay % 10 == 0) {
+                  _queueSpeak('You are still going the wrong way.', priority: TtsPriority.normal);
+                }
+              } else {
+                _consecutiveWrongWay = 0;
+              }
+              
+              // Reset offline off-route warning so it can fire again for a new deviation
+              if (_hasSpokenOfflineWarning) {
+                _hasSpokenOfflineWarning = false;
+                _wasOffRouteWhenOffline = false;
+              }
               
               if (_routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length) {
                 // 4b. Responsive Step Progression
@@ -503,7 +737,11 @@ class NavigationProvider extends ChangeNotifier {
                   if (isLeader) {
                     if (!_hasArrived) {
                       _hasArrived = true;
-                      _queueSpeak('You have arrived at your destination.', priority: TtsPriority.high);
+                      final destName = _selectedStop?.name ?? _navigatingGroup?.route.destination.name;
+                      final message = destName != null && destName.isNotEmpty
+                          ? 'You have reached your set $destName destination.'
+                          : 'You have arrived at your destination.';
+                      _queueSpeak(message, priority: TtsPriority.high);
                       notifyListeners();
                     }
                   } else {
@@ -524,8 +762,8 @@ class NavigationProvider extends ChangeNotifier {
             }
           }
 
-          // 5. Calculate route if not done yet (e.g. initial start)
-          if (_routePolyline.isEmpty && _navigatingGroup != null && !_isRerouting) {
+          // 5. Calculate route if not done yet (e.g. initial start) — skip if offline
+          if (_routePolyline.isEmpty && _navigatingGroup != null && !_isRerouting && !_isOffline) {
             _calculatePersonalRoute();
           }
         }
@@ -583,6 +821,32 @@ class NavigationProvider extends ChangeNotifier {
     return LocationService.distanceBetween(pLat, pLng, projLat, projLng);
   }
 
+  /// Check if the user is driving the wrong way along the route
+  bool _isWrongWay(Position position, double minDistance) {
+    if (_routePolyline.length < 2) return false;
+    // Don't calculate wrong way if moving too slow or off route (1.5 m/s = 5.4 km/h)
+    if (position.speed < 1.5 || minDistance > _deviationThreshold) return false;
+
+    double minDist = double.infinity;
+    double nearestSegmentBearing = 0.0;
+    
+    for (int i = 0; i < _routePolyline.length - 1; i++) {
+      final a = _routePolyline[i];
+      final b = _routePolyline[i + 1];
+      final dist = _pointToSegmentDistance(position.latitude, position.longitude, a.latitude, a.longitude, b.latitude, b.longitude);
+      if (dist < minDist) {
+        minDist = dist;
+        nearestSegmentBearing = LocationService.bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
+      }
+    }
+    
+    double diff = (position.heading - nearestSegmentBearing).abs();
+    if (diff > 180) diff = 360 - diff;
+    
+    // If heading differs by more than 120 degrees from the segment bearing, user is going the wrong way
+    return diff > 120;
+  }
+
   /// Recalculate remaining distance/duration from current step onward
   void _updateRemainingStats() {
     double dist = 0;
@@ -625,6 +889,8 @@ class NavigationProvider extends ChangeNotifier {
     final hasPermission = await _locationService.requestPermissions();
     if (hasPermission) {
       _locationService.startTracking();
+      _fallDetectionService.start();
+      _shakeDetectionService.start();
     }
 
     // Context-Aware Night Driving Advisory
@@ -672,18 +938,25 @@ class NavigationProvider extends ChangeNotifier {
       _wsService.unsubscribeFromGroup(_currentGroupId!);
     }
     _locationService.stopTracking();
+    _offlineCacheService.clearAll();
     _tts.stop();
     _isNavigating = false;
     _currentGroupId = null;
-    _navigatingGroup = null;
-    _routePolyline.clear();
-    _routeSteps.clear();
-    _routeDistance = 0;
-    _routeDuration = 0;
-    _remainingDistance = 0;
-    _remainingDuration = 0;
+    _isNavigating = false;
+    _routePolyline = [];
+    _routeSteps = [];
     _memberPositions.clear();
     _activeAlerts.clear();
+    _activeSuggestion = null;
+    _suggestionTimer?.cancel();
+    _locationService.stopTracking();
+    _fallDetectionService.stop();
+    _shakeDetectionService.stop();
+    _wsService.disconnect();
+    
+    // Clear offline cache
+    _offlineCacheService.clearRouteCache();
+    _offlineCacheService.clearLocationQueue();
     _nearbyPlaces.clear();
     _isSosActive = false;
     _sosUserId = null;
@@ -701,6 +974,16 @@ class NavigationProvider extends ChangeNotifier {
   /// Reset arrival state (for dismissing the arrival screen)
   void dismissArrival() {
     _hasArrived = false;
+    // Clear route to prevent arrival from immediately triggering again 
+    // on the next GPS update while staying in the active navigation session.
+    _routePolyline.clear();
+    _routeSteps.clear();
+    _currentStepIndex = 0;
+    _remainingDistance = 0;
+    _remainingDuration = 0;
+    if (_selectedStop != null) {
+      clearStop();
+    }
     notifyListeners();
   }
 
@@ -823,6 +1106,9 @@ class NavigationProvider extends ChangeNotifier {
         _reachedLeader = false;
         notifyListeners();
         debugPrint('[Navigation] Personal route calculated: ${_routeDistance}m, ${_routeSteps.length} steps');
+        
+        // Cache this new route so it's ready in case of sudden network drop
+        _cacheCurrentRoute();
       }
     } catch (e) {
       debugPrint('[Navigation] Failed to calculate personal route: $e');

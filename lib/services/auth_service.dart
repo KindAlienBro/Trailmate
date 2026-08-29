@@ -12,6 +12,10 @@ class UserModel {
   final String email;
   final String? avatar;
   final String? phone;
+  final int trips;
+  final int kmTravelled;
+  final int badges;
+  final String title;
 
   UserModel({
     required this.id,
@@ -19,6 +23,10 @@ class UserModel {
     required this.email,
     this.avatar,
     this.phone,
+    this.trips = 0,
+    this.kmTravelled = 0,
+    this.badges = 0,
+    this.title = 'Novice Traveler',
   });
 
   factory UserModel.fromJson(Map<String, dynamic> json) {
@@ -28,6 +36,10 @@ class UserModel {
       email: json['email'] ?? '',
       avatar: json['avatar'],
       phone: json['phone'],
+      trips: json['trips'] ?? 0,
+      kmTravelled: json['kmTravelled'] ?? 0,
+      badges: json['badges'] ?? 0,
+      title: json['title'] ?? 'Novice Traveler',
     );
   }
 }
@@ -199,6 +211,10 @@ class AuthService {
           name: storedName,
           email: storedEmail,
           phone: '',
+          trips: 0,
+          kmTravelled: 0,
+          badges: 0,
+          title: 'Novice Traveler',
         );
       }
 

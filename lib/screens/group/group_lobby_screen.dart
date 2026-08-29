@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
 import 'dart:math' as math;
 import 'package:latlong2/latlong.dart';
 
@@ -25,6 +26,8 @@ class GroupLobbyScreen extends StatefulWidget {
 
 class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
   bool _isRefreshing = false;
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
   final MapController _mapController = MapController();
 
   @override
@@ -70,6 +73,65 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
       await navProvider.startNavigation(group);
       Navigator.of(context).pushReplacementNamed('/live-navigation', arguments: group.id);
     }
+  }
+
+  void _downloadMap(GroupModel group) {
+    if (!group.route.hasRoute || group.route.polyline == null) return;
+    
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+    });
+
+    final polyline = decodePolyline(group.route.polyline!);
+    final region = RectangleRegion(LatLngBounds.fromPoints(polyline));
+    
+    final downloadableRegion = region.toDownloadable(
+      minZoom: 12,
+      maxZoom: 18,
+      options: TileLayer(
+        urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+        userAgentPackageName: 'com.vorniity.rouniity',
+      ),
+    );
+
+    final store = const FMTCStore('mapStore');
+    
+    final streams = store.download.startForeground(
+      region: downloadableRegion,
+    );
+    
+    streams.downloadProgress.listen((progress) {
+      if (mounted) {
+        setState(() {
+          _downloadProgress = progress.percentageProgress / 100.0;
+        });
+      }
+    }, onDone: () {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Map saved for offline use!'),
+            backgroundColor: AppColors.of(context).accentSecondary,
+          ),
+        );
+      }
+    }, onError: (e) {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Download failed: $e'),
+            backgroundColor: AppColors.of(context).accentDanger,
+          ),
+        );
+      }
+    });
   }
 
   @override
@@ -281,7 +343,8 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
       children: [
         TileLayer(
           urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-          userAgentPackageName: 'com.example.trialmate',
+          userAgentPackageName: 'com.vorniity.rouniity',
+          tileProvider: const FMTCStore('mapStore').getTileProvider(),
         ),
         if (polyline.isNotEmpty)
           PolylineLayer(
@@ -622,6 +685,29 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
                   _buildStat(Icons.place_outlined, '${group.route.waypoints.length} stops', colors, theme),
                 ],
               ),
+              if (group.route.hasRoute) ...[
+                const SizedBox(height: 24),
+                _isDownloading
+                  ? Column(
+                      children: [
+                        Text('Downloading map tiles...', style: theme.textTheme.bodySmall?.copyWith(color: colors.textSecondary)),
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(value: _downloadProgress, color: colors.accentSecondary, backgroundColor: colors.borderColor),
+                      ],
+                    )
+                  : SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () => _downloadMap(group),
+                        icon: Icon(Icons.download_for_offline_rounded, color: colors.accentSecondary),
+                        label: Text('Save Map for Offline', style: TextStyle(color: colors.accentSecondary, fontWeight: FontWeight.bold)),
+                        style: OutlinedButton.styleFrom(
+                          side: BorderSide(color: colors.accentSecondary),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                        ),
+                      ),
+                    ),
+              ],
             ],
           ) : Center(child: Text('No route planned yet.', style: TextStyle(color: colors.textSecondary))),
         ),

@@ -16,21 +16,58 @@ class GoogleNavigationMarker extends StatefulWidget {
   State<GoogleNavigationMarker> createState() => _GoogleNavigationMarkerState();
 }
 
-class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with SingleTickerProviderStateMixin {
+class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with TickerProviderStateMixin {
   late AnimationController _pulseController;
+  late AnimationController _rotationController;
+  late Animation<double> _rotationAnimation;
 
   @override
   void initState() {
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: Duration(seconds: 2),
+      duration: const Duration(seconds: 2),
     )..repeat(reverse: false);
+
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 300),
+    );
+    
+    _rotationAnimation = Tween<double>(begin: widget.heading, end: widget.heading).animate(_rotationController);
+  }
+
+  double _shortestAngleDelta(double from, double to) {
+    double delta = (to - from) % 360;
+    if (delta > 180) delta -= 360;
+    if (delta < -180) delta += 360;
+    return delta;
+  }
+
+  @override
+  void didUpdateWidget(covariant GoogleNavigationMarker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.heading != widget.heading) {
+      final currentAnimatedHeading = _rotationAnimation.value;
+      final delta = _shortestAngleDelta(currentAnimatedHeading, widget.heading);
+      final targetHeading = currentAnimatedHeading + delta;
+      
+      _rotationAnimation = Tween<double>(
+        begin: currentAnimatedHeading,
+        end: targetHeading,
+      ).animate(CurvedAnimation(
+        parent: _rotationController,
+        curve: Curves.linear,
+      ));
+      
+      _rotationController.forward(from: 0.0);
+    }
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
+    _rotationController.dispose();
     super.dispose();
   }
 
@@ -43,10 +80,8 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
     final camera = MapCamera.of(context);
     final mapRotation = camera.rotation; 
     
-    // Convert everything to radians. 
-    // `heading` is relative to North (clockwise).
-    // `mapRotation` is the map's current rotation relative to screen top.
-    final double angle = (widget.heading + mapRotation) * (math.pi / 180.0);
+    // mapRotation is the map's current rotation relative to screen top.
+    // The final angle will be computed inside the AnimatedBuilder below.
 
     return SizedBox(
       width: 60,
@@ -94,12 +129,18 @@ class _GoogleNavigationMarkerState extends State<GoogleNavigationMarker> with Si
           ),
           
           // 3. The rotated Chevron
-          Transform.rotate(
-            angle: angle,
-            child: CustomPaint(
-              size: Size(28, 28),
-              painter: _ChevronPainter(),
-            ),
+          AnimatedBuilder(
+            animation: _rotationAnimation,
+            builder: (context, child) {
+              final double angle = (_rotationAnimation.value + mapRotation) * (math.pi / 180.0);
+              return Transform.rotate(
+                angle: angle,
+                child: CustomPaint(
+                  size: const Size(28, 28),
+                  painter: _ChevronPainter(),
+                ),
+              );
+            },
           ),
         ],
       ),

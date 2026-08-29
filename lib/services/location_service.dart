@@ -102,9 +102,17 @@ class LocationService {
       ),
     ).listen(
       (position) {
-        // Reject inaccurate cell-tower/IP triangulation jumps (anything worse than 50 meters)
-        if (position.accuracy > 50.0) {
-          debugPrint('[Location] Ignoring inaccurate reading: ${position.accuracy}m');
+        debugPrint('[Location] RAW accuracy: ${position.accuracy}m, mocked: ${position.isMocked}');
+        
+        // Relax the filter over time: if we haven't had a good update in 15 seconds, accept worse accuracy (offline GPS lock)
+        final secondsSinceLastUpdate = _lastPosition != null 
+            ? DateTime.now().difference(_lastPosition!.timestamp).inSeconds 
+            : 999;
+        final effectiveThreshold = secondsSinceLastUpdate > 15 ? 150.0 : 50.0;
+
+        // Reject wildly inaccurate cell-tower/IP triangulation jumps
+        if (position.accuracy > effectiveThreshold && !position.isMocked) {
+          debugPrint('[Location] Ignoring inaccurate reading: ${position.accuracy}m (Threshold: ${effectiveThreshold}m)');
           return;
         }
 

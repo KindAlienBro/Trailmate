@@ -162,22 +162,9 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
                         opacity: _textOpacity,
                         child: Column(
                           children: [
-                            Text(
-                              'RoUniity',
-                              style: theme.textTheme.displayMedium?.copyWith(
-                                fontWeight: FontWeight.w800,
-                                letterSpacing: -1,
-                                shadows: [
-                                  Shadow(
-                                    color: colors.accentPrimary.withValues(alpha: 0.3 * _pulseController.value),
-                                    blurRadius: 20,
-                                  ),
-                                ],
-                              ),
-                            ),
                             const SizedBox(height: 8),
                             Text(
-                              'Explore Together',
+                              '',
                               style: theme.textTheme.titleMedium?.copyWith(
                                 color: colors.textSecondary,
                                 letterSpacing: 4,
@@ -222,42 +209,31 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   }
 
   Widget _buildLogoContainer(AppColorScheme colors) {
-    // Creating a premium glassmorphic/glowing housing for the logo
+    // Creating a premium glowing effect behind the transparent logo
     final glowOpacity = 0.2 + (0.15 * _pulseController.value);
     
     return Container(
-      width: 140,
-      height: 140,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         boxShadow: [
           BoxShadow(
             color: colors.accentPrimary.withValues(alpha: glowOpacity),
-            blurRadius: 50,
-            spreadRadius: 10 * _pulseController.value,
+            blurRadius: 70,
+            spreadRadius: 20 * _pulseController.value,
           ),
           BoxShadow(
             color: colors.accentSecondary.withValues(alpha: glowOpacity),
-            blurRadius: 40,
+            blurRadius: 60,
             spreadRadius: -5,
             offset: const Offset(0, 10),
           ),
         ],
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(40),
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: colors.borderColor.withValues(alpha: 0.3),
-              width: 1.5,
-            ),
-            borderRadius: BorderRadius.circular(40),
-          ),
-          child: Image.asset(
-            'assets/logo_dark.jpg',
-            fit: BoxFit.cover,
-          ),
+      child: Center(
+        child: Image.asset(
+          'assets/logo_transparent.png',
+          height: 220,
+          fit: BoxFit.contain,
         ),
       ),
     );

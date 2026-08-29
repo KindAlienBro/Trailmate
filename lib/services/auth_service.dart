@@ -150,24 +150,6 @@ class AuthService {
     required String password,
   }) async {
     try {
-      // --- DEV BYPASS: Use dev-login endpoint for a real JWT ---
-      final response = await http.post(
-        Uri.parse('${AppConstants.serverBaseUrl}/api/auth/dev-login'),
-        headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 5));
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        _token = data['token'];
-        _currentUser = UserModel.fromJson(data['user']);
-        await _saveCredentials();
-        return {'success': true, 'user': _currentUser};
-      } else {
-        return {'success': false, 'error': data['error'] ?? 'Dev login failed'};
-      }
-
-      /* Original code:
       final response = await http.post(
         Uri.parse('${AppConstants.serverBaseUrl}/api/auth/login'),
         headers: {'Content-Type': 'application/json'},
@@ -187,7 +169,6 @@ class AuthService {
       } else {
         return {'success': false, 'error': data['error'] ?? 'Login failed'};
       }
-      */
     } catch (e) {
       debugPrint('Login error: $e');
       return {'success': false, 'error': 'Network error. Is the server running?'};

@@ -11,6 +11,7 @@ const groupRoutes = require('./routes/groups');
 const olaProxyRoutes = require('./routes/olaProxy');
 const smartRouteRoutes = require('./routes/smartRoute');
 const feedbackRoutes = require('./routes/feedback');
+const privacyRoutes = require('./routes/privacy');
 const { authenticateSocket } = require('./middleware/auth');
 const { setupLocationHub } = require('./sockets/locationHub');
 const { setupAlertEngine } = require('./sockets/alertEngine');
@@ -45,6 +46,7 @@ app.use('/api/groups', groupRoutes);
 app.use('/api/maps', olaProxyRoutes);
 app.use('/api/maps', smartRouteRoutes);
 app.use('/api/feedback', feedbackRoutes);
+app.use('/privacy', privacyRoutes);
 
 // Global Error Handler to always return JSON (catches PayloadTooLarge, SyntaxError, etc)
 app.use((err, req, res, next) => {

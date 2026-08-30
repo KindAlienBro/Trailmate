@@ -9,6 +9,8 @@ import '../../widgets/theme_switcher_sheet.dart';
 import '../../core/app_colors.dart';
 import '../../services/explore_service.dart';
 import '../../services/place_image_service.dart';
+import 'search_destinations_screen.dart';
+import 'destination_details_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -153,28 +155,36 @@ class _HomeScreenState extends State<HomeScreen> {
         itemCount: categories.length,
         itemBuilder: (context, index) {
           final cat = categories[index];
-          return Container(
-            width: 72,
-            margin: const EdgeInsets.symmetric(horizontal: 8),
-            child: Column(
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: (cat['color'] as Color).withValues(alpha: 0.1),
-                    shape: BoxShape.circle,
+          return GestureDetector(
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => SearchDestinationsScreen(initialQuery: cat['name'] as String),
+              ),
+            ),
+            child: Container(
+              width: 72,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                children: [
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color: (cat['color'] as Color).withValues(alpha: 0.1),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(cat['icon'] as IconData, color: cat['color'] as Color, size: 28),
                   ),
-                  child: Icon(cat['icon'] as IconData, color: cat['color'] as Color, size: 28),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  cat['name'] as String,
-                  style: TextStyle(color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
+                  const SizedBox(height: 8),
+                  Text(
+                    cat['name'] as String,
+                    style: TextStyle(color: colors.textSecondary, fontSize: 12, fontWeight: FontWeight.w500),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           );
         },
@@ -207,44 +217,63 @@ class _HomeScreenState extends State<HomeScreen> {
                   builder: (context, snapshot) {
                     final isLoading = snapshot.connectionState == ConnectionState.waiting;
                     final imageUrl = snapshot.data ?? '';
-                    return Stack(
-                      children: [
-                        Positioned.fill(
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(20),
-                            child: _buildNetworkImage(
-                              imageUrl: imageUrl,
-                              colors: colors,
-                              isLoading: isLoading,
+                    return GestureDetector(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => DestinationDetailsScreen(
+                              place: TouristPlace(
+                                name: name,
+                                lat: 0.0,
+                                lon: 0.0,
+                                type: 'trending',
+                                distanceKm: 0.0,
+                                imageUrl: imageUrl,
+                              ),
                             ),
                           ),
-                        ),
-                        Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.transparent,
-                                Colors.black.withValues(alpha: 0.8),
-                              ],
+                        );
+                      },
+                      child: Stack(
+                        children: [
+                          Positioned.fill(
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: _buildNetworkImage(
+                                imageUrl: imageUrl,
+                                colors: colors,
+                                isLoading: isLoading,
+                              ),
                             ),
                           ),
-                        ),
-                        Positioned(
-                          bottom: 16,
-                          left: 16,
-                          child: Text(
-                            name,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 16,
+                          Container(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(20),
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: 0.8),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                          Positioned(
+                            bottom: 16,
+                            left: 16,
+                            child: Text(
+                              name,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     );
                   },
                 ),
@@ -579,42 +608,48 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildSearchBar(AppColorScheme colors) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-      child: Container(
-        height: 56,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        decoration: BoxDecoration(
-          color: colors.cardColor,
-          borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: colors.borderColor, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.03),
-              blurRadius: 10,
-              offset: const Offset(0, 4),
-            )
-          ],
+      child: GestureDetector(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (context) => const SearchDestinationsScreen()),
         ),
-        child: Row(
-          children: [
-            Icon(Icons.search_rounded, color: colors.accentSecondary, size: 26),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Search destinations, places or trips...',
-                style: TextStyle(
-                  color: colors.textSecondary.withValues(alpha: 0.7),
-                  fontSize: 15,
+        child: Container(
+          height: 56,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          decoration: BoxDecoration(
+            color: colors.cardColor,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: colors.borderColor, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.03),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              )
+            ],
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.search_rounded, color: colors.accentSecondary, size: 26),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Search destinations, places or trips...',
+                  style: TextStyle(
+                    color: colors.textSecondary.withValues(alpha: 0.7),
+                    fontSize: 15,
+                  ),
                 ),
               ),
-            ),
-            Container(
-              width: 1,
-              height: 24,
-              color: colors.borderColor,
-              margin: const EdgeInsets.symmetric(horizontal: 12),
-            ),
-            Icon(Icons.tune_rounded, color: colors.accentSecondary, size: 24),
-          ],
+              Container(
+                width: 1,
+                height: 24,
+                color: colors.borderColor,
+                margin: const EdgeInsets.symmetric(horizontal: 12),
+              ),
+              Icon(Icons.tune_rounded, color: colors.accentSecondary, size: 24),
+            ],
+          ),
         ),
       ),
     );
@@ -982,9 +1017,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       itemBuilder: (context, index) {
                         final place = _nearbyPlaces[index];
                         return GestureDetector(
-                          onTap: () => Navigator.of(context).pushNamed(
-                            '/create-group',
-                            arguments: {'destinationName': place.name},
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => DestinationDetailsScreen(place: place),
+                            ),
                           ),
                           child: Container(
                             width: 120,

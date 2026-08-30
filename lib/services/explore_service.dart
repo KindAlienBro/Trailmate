@@ -161,4 +161,105 @@ class ExploreService {
       );
     });
   }
+
+  /// Searches for places by text query using Ola Maps autocomplete proxy
+  static Future<List<TouristPlace>> searchDestinations({
+    required String query,
+    double? currentLat,
+    double? currentLon,
+    String? token,
+  }) async {
+    if (token == null || query.trim().isEmpty) return [];
+
+    try {
+      final url = '${AppConstants.serverBaseUrl}/api/maps/autocomplete?input=${Uri.encodeComponent(query)}';
+      
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final predictions = data['predictions'] as List<dynamic>? ?? [];
+        if (predictions.isEmpty) return [];
+
+        final List<TouristPlace> places = [];
+        for (var p in predictions) {
+          final name = p['description'] ?? p['structured_formatting']?['main_text'] ?? 'Unknown Place';
+          
+          // Autocomplete usually doesn't return full lat/lon geometry right away,
+          // but our olaProxy attempts to fetch it in nearbysearch. In autocomplete, it might not.
+          // Let's parse geometry if it exists (which we added in olaProxy nearbysearch, but maybe not in autocomplete).
+          // Wait, olaProxy autocomplete doesn't fetch details. Let's assume we fallback to 0.0 lat/lon if not available,
+          // and let the details screen or route screen resolve it.
+          // Wait, we need coordinates to show distance and navigate. Let's call /api/maps/geocode for the first result if needed,
+          // OR we can just pass the name to details screen and let it geocode, OR geocode them here.
+          // To be safe and fast, we'll try to use geometry if there, else we'll just set lat/lon to 0.
+          
+          double pLat = 0.0;
+          double pLon = 0.0;
+          if (p['geometry'] != null) {
+            pLat = p['geometry']['location']?['lat']?.toDouble() ?? 0.0;
+            pLon = p['geometry']['location']?['lng']?.toDouble() ?? 0.0;
+          }
+
+          // Fetch image dynamically
+          final imageUrl = await PlaceImageService.fetchImageUrl(name);
+
+          places.add(TouristPlace(
+            name: name,
+            lat: pLat,
+            lon: pLon,
+            type: 'search_result',
+            distanceKm: 0.0, // Distance not available without coords
+            imageUrl: imageUrl,
+          ));
+        }
+
+        return places;
+      }
+    } catch (e) {
+      debugPrint('Explore Search error: $e');
+    }
+    return [];
+  }
+
+  /// Geocodes a place name to coordinates using Ola Maps geocode proxy
+  static Future<TouristPlace?> geocodePlace(String name, {String? token}) async {
+    if (token == null) return null;
+    try {
+      final url = '${AppConstants.serverBaseUrl}/api/maps/geocode?address=${Uri.encodeComponent(name)}';
+      final response = await http.get(
+        Uri.parse(url),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final geocodeResults = data['geocodingResults'] as List<dynamic>? ?? [];
+        if (geocodeResults.isNotEmpty) {
+          final geom = geocodeResults.first['geometry']?['location'];
+          if (geom != null) {
+            return TouristPlace(
+              name: name,
+              lat: geom['lat']?.toDouble() ?? 0.0,
+              lon: geom['lng']?.toDouble() ?? 0.0,
+              type: 'geocoded',
+              distanceKm: 0.0,
+              imageUrl: '',
+            );
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Geocode error: $e');
+    }
+    return null;
+  }
 }

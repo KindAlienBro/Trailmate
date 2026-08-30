@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_map_tile_caching/flutter_map_tile_caching.dart';
@@ -162,6 +163,29 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
     return nearest;
   }
 
+  DateTime? _lastTileUpdate;
+  Timer? _tileUpdateTimer;
+
+  Stream<TileUpdateEvent> _throttleTileUpdates(Stream<TileUpdateEvent> inStream) {
+    StreamController<TileUpdateEvent> controller = StreamController<TileUpdateEvent>();
+    inStream.listen((event) {
+      final now = DateTime.now();
+      if (_lastTileUpdate == null || now.difference(_lastTileUpdate!) > const Duration(milliseconds: 150)) {
+        _lastTileUpdate = now;
+        controller.add(event);
+      } else {
+        _tileUpdateTimer?.cancel();
+        _tileUpdateTimer = Timer(const Duration(milliseconds: 150), () {
+          _lastTileUpdate = DateTime.now();
+          if (!controller.isClosed) {
+             controller.add(event);
+          }
+        });
+      }
+    }, onDone: () => controller.close(), onError: (e) => controller.addError(e));
+    return controller.stream;
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
@@ -171,6 +195,8 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
       urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
       userAgentPackageName: 'com.vorniity.rouniity',
       tileProvider: const FMTCStore('mapStore').getTileProvider(),
+      keepBuffer: 1, // Reduce texture pre-loading to save GPU memory
+      tileUpdateTransformer: _throttleTileUpdates,
     );
 
     // Wrap in color filter for dark mode

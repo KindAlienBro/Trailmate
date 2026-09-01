@@ -5,6 +5,7 @@ import '../../providers/auth_provider.dart';
 import '../../core/app_colors.dart';
 import '../../core/legal_docs.dart';
 import 'document_viewer_screen.dart';
+import 'package:intl_phone_field/intl_phone_field.dart';
 
 /// Ultra-Premium register screen with deep glassmorphism and organic masking.
 class RegisterScreen extends StatefulWidget {
@@ -21,6 +22,8 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
   final _phoneController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  
+  String _completePhoneNumber = '';
   
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
@@ -104,11 +107,11 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
 
     final authProvider = context.read<AuthProvider>();
     
-    // Bypass OTP Verification
+    // Bypass OTP Verification for now
     bool registered = await authProvider.register(
       name: _nameController.text.trim(),
       email: _emailController.text.trim(),
-      phone: _phoneController.text.trim(),
+      phone: _completePhoneNumber.isEmpty ? _phoneController.text.trim() : _completePhoneNumber,
       password: _passwordController.text,
       otp: "123456", // dummy otp
     );
@@ -148,7 +151,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Enter the OTP sent to ${_phoneController.text}',
+                  'Enter the OTP sent to ${_completePhoneNumber.isEmpty ? _phoneController.text : _completePhoneNumber}',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                     color: colors.textSecondary,
                   ),
@@ -187,7 +190,7 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                                   bool registered = await auth.register(
                                     name: _nameController.text.trim(),
                                     email: _emailController.text.trim(),
-                                    phone: _phoneController.text.trim(),
+                                    phone: _completePhoneNumber.isEmpty ? _phoneController.text.trim() : _completePhoneNumber,
                                     password: _passwordController.text,
                                     otp: otp, // Pass the OTP string for backwards compatibility or leave empty
                                   );
@@ -422,19 +425,35 @@ class _RegisterScreenState extends State<RegisterScreen> with TickerProviderStat
                   },
                 ),
                 const SizedBox(height: 16),
-                _buildGlowingTextField(
-                  controller: _phoneController,
-                  focusNode: _phoneFocus,
-                  colors: colors,
-                  theme: theme,
-                  label: 'Phone Number (with country code)',
-                  icon: Icons.phone_outlined,
-                  keyboardType: TextInputType.phone,
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) return 'Required';
-                    if (!value.startsWith('+')) return 'Include country code (e.g. +1)';
-                    return null;
-                  },
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 300),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: _phoneFocus.hasFocus ? [BoxShadow(color: colors.accentPrimary.withValues(alpha: 0.1), blurRadius: 12, spreadRadius: 0)] : [],
+                  ),
+                  child: IntlPhoneField(
+                    controller: _phoneController,
+                    focusNode: _phoneFocus,
+                    style: theme.textTheme.bodyLarge?.copyWith(color: colors.textPrimary),
+                    dropdownTextStyle: theme.textTheme.bodyLarge?.copyWith(color: colors.textPrimary),
+                    dropdownIcon: Icon(Icons.arrow_drop_down, color: colors.textTertiary),
+                    decoration: InputDecoration(
+                      labelText: 'Phone Number',
+                      labelStyle: theme.textTheme.bodyMedium?.copyWith(color: _phoneFocus.hasFocus ? colors.accentPrimary : colors.textTertiary),
+                      filled: true,
+                      fillColor: colors.surfaceColor.withValues(alpha: _phoneFocus.hasFocus ? 0.2 : 0.05),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: colors.borderColor.withValues(alpha: 0.1))),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: colors.borderColor.withValues(alpha: 0.1))),
+                      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: colors.accentPrimary.withValues(alpha: 0.5), width: 1.5)),
+                      errorBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: colors.accentDanger)),
+                      counterText: '',
+                    ),
+                    initialCountryCode: 'IN', // Default country code (can be modified if needed)
+                    onChanged: (phone) {
+                      _completePhoneNumber = phone.completeNumber;
+                    },
+                  ),
                 ),
                 const SizedBox(height: 16),
                 _buildGlowingTextField(

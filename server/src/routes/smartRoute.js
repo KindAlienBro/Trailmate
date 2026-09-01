@@ -1016,8 +1016,8 @@ router.post('/suggest-waypoints', async (req, res) => {
 
     const params = { origin, destination, api_key: getOlaApiKey(), steps: true, alternatives: true };
     if (transportMode) {
-      if (transportMode === 'two_wheeler' || transportMode === 'bike') params.mode = 'bicycle';
-      else if (transportMode === 'walking' || transportMode === 'walk') params.mode = 'pedestrian';
+      if (transportMode === 'two_wheeler' || transportMode === 'bike') params.mode = 'motorcycle';
+      else if (transportMode === 'walking' || transportMode === 'walk') params.mode = 'walking';
       else params.mode = transportMode;
     }
 
@@ -1054,8 +1054,8 @@ router.post('/smart-route', async (req, res) => {
 
     const params = { origin, destination, api_key: getOlaApiKey(), steps: true, alternatives: true };
     if (transportMode) {
-      if (transportMode === 'two_wheeler' || transportMode === 'bike') params.mode = 'bicycle';
-      else if (transportMode === 'walking' || transportMode === 'walk') params.mode = 'pedestrian';
+      if (transportMode === 'two_wheeler' || transportMode === 'bike') params.mode = 'motorcycle';
+      else if (transportMode === 'walking' || transportMode === 'walk') params.mode = 'walking';
       else params.mode = transportMode;
     }
 
@@ -1100,8 +1100,8 @@ router.post('/smart-route', async (req, res) => {
     let url = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true&alternatives=true`;
     if (transportMode) {
       let mappedMode = transportMode;
-      if (transportMode === 'two_wheeler' || transportMode === 'bike') mappedMode = 'bicycle';
-      else if (transportMode === 'walking' || transportMode === 'walk') mappedMode = 'pedestrian';
+      if (transportMode === 'two_wheeler' || transportMode === 'bike') mappedMode = 'motorcycle';
+      else if (transportMode === 'walking' || transportMode === 'walk') mappedMode = 'walking';
       url += `&mode=${mappedMode}`;
     }
     if (waypointsStr) url += `&waypoints=${waypointsStr}`;
@@ -1127,8 +1127,8 @@ router.post('/smart-route', async (req, res) => {
       let fallbackUrl = `${OLA_BASE_URL}/routing/v1/directions?origin=${origin}&destination=${destination}&api_key=${getOlaApiKey()}&steps=true&alternatives=true`;
       if (transportMode) {
         let mappedMode = transportMode;
-        if (transportMode === 'two_wheeler' || transportMode === 'bike') mappedMode = 'bicycle';
-        else if (transportMode === 'walking' || transportMode === 'walk') mappedMode = 'pedestrian';
+        if (transportMode === 'two_wheeler' || transportMode === 'bike') mappedMode = 'motorcycle';
+        else if (transportMode === 'walking' || transportMode === 'walk') mappedMode = 'walking';
         fallbackUrl += `&mode=${mappedMode}`;
       }
 

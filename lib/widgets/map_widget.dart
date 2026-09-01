@@ -166,7 +166,8 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
   DateTime? _lastTileUpdate;
   Timer? _tileUpdateTimer;
 
-  Stream<TileUpdateEvent> _throttleTileUpdates(Stream<TileUpdateEvent> inStream) {
+  late final StreamTransformer<TileUpdateEvent, TileUpdateEvent> _throttleTileUpdates =
+      StreamTransformer<TileUpdateEvent, TileUpdateEvent>.fromBind((Stream<TileUpdateEvent> inStream) {
     StreamController<TileUpdateEvent> controller = StreamController<TileUpdateEvent>();
     inStream.listen((event) {
       final now = DateTime.now();
@@ -184,7 +185,7 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
       }
     }, onDone: () => controller.close(), onError: (e) => controller.addError(e));
     return controller.stream;
-  }
+  });
 
   @override
   Widget build(BuildContext context) {

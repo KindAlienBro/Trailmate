@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_provider.dart';
 import '../core/app_colors.dart';
+import 'package:in_app_update/in_app_update.dart';
 
 /// Redesigned Splash Screen with Fluid Choreography
 class SplashScreen extends StatefulWidget {
@@ -81,6 +82,22 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
   Future<void> _initializeApp() async {
     // Wait for the exact moment the animation feels complete
     await Future.delayed(const Duration(milliseconds: 2800));
+
+    if (!mounted) return;
+    
+    try {
+      final AppUpdateInfo updateInfo = await InAppUpdate.checkForUpdate();
+      if (updateInfo.updateAvailability == UpdateAvailability.updateAvailable) {
+        if (updateInfo.immediateUpdateAllowed) {
+          await InAppUpdate.performImmediateUpdate();
+        } else if (updateInfo.flexibleUpdateAllowed) {
+          await InAppUpdate.startFlexibleUpdate();
+          await InAppUpdate.completeFlexibleUpdate();
+        }
+      }
+    } catch (e) {
+      debugPrint("Failed to check for updates: $e");
+    }
 
     if (!mounted) return;
     final authProvider = context.read<AuthProvider>();

@@ -117,7 +117,7 @@ class _CreateGroupScreenState extends State<CreateGroupScreen> {
             originLng: origin.lng!,
             destLat: destination.lat!,
             destLng: destination.lng!,
-            mode: _selectedMode == 'walking' ? 'pedestrian' : _selectedMode == 'two_wheeler' ? 'bicycle' : 'driving',
+            mode: _selectedMode == 'walking' ? 'walking' : _selectedMode == 'two_wheeler' ? 'motorcycle' : 'driving',
             alternatives: true,
           );
           

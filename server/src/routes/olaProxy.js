@@ -161,9 +161,9 @@ router.post('/directions', async (req, res) => {
     };
     if (mode) {
       if (mode === 'two_wheeler' || mode === 'bike') {
-        params.mode = 'bicycle';
+        params.mode = 'motorcycle';
       } else if (mode === 'walking' || mode === 'walk') {
-        params.mode = 'pedestrian';
+        params.mode = 'walking';
       } else {
         params.mode = mode;
       }

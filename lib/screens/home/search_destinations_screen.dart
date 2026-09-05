@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/app_colors.dart';
+import '../../widgets/skeleton_loader.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/explore_service.dart';
 import 'destination_details_screen.dart';
@@ -119,7 +120,16 @@ class _SearchDestinationsScreenState extends State<SearchDestinationsScreen> {
         ),
       ),
       body: _isLoading
-          ? Center(child: CircularProgressIndicator(color: colors.accentPrimary))
+          ? ListView(
+              physics: const NeverScrollableScrollPhysics(),
+              children: const [
+                SkeletonSearchResultTile(),
+                SkeletonSearchResultTile(),
+                SkeletonSearchResultTile(),
+                SkeletonSearchResultTile(),
+                SkeletonSearchResultTile(),
+              ],
+            )
           : _results.isEmpty && _searchController.text.isNotEmpty
               ? Center(
                   child: Text(

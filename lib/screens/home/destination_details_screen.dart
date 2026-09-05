@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../core/app_colors.dart';
+import '../../widgets/skeleton_loader.dart';
 import '../../providers/auth_provider.dart';
 import '../../services/explore_service.dart';
 import '../../services/wikipedia_service.dart';
@@ -19,6 +20,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
   bool _isLoadingDesc = true;
   TouristPlace? _resolvedPlace;
   bool _isResolvingCoords = false;
+  bool _isAddressExpanded = false;
 
   @override
   void initState() {
@@ -90,6 +92,14 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
   Widget build(BuildContext context) {
     final colors = AppColors.of(context);
     final size = MediaQuery.of(context).size;
+    
+    final firstCommaIndex = widget.place.name.indexOf(',');
+    final String heading = firstCommaIndex != -1 
+        ? widget.place.name.substring(0, firstCommaIndex).trim() 
+        : widget.place.name;
+    final String address = firstCommaIndex != -1 
+        ? widget.place.name.substring(firstCommaIndex + 1).trim() 
+        : '';
 
     return Scaffold(
       backgroundColor: colors.surfaceColor,
@@ -153,7 +163,7 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                widget.place.name,
+                                heading,
                                 style: const TextStyle(
                                   fontSize: 32,
                                   fontWeight: FontWeight.bold,
@@ -161,6 +171,40 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                                   height: 1.2,
                                 ),
                               ),
+                              if (address.isNotEmpty) ...[
+                                const SizedBox(height: 8),
+                                GestureDetector(
+                                  onTap: () {
+                                    setState(() {
+                                      _isAddressExpanded = !_isAddressExpanded;
+                                    });
+                                  },
+                                  child: Row(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Icon(Icons.location_city_rounded, color: Colors.white70, size: 16),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          address,
+                                          style: const TextStyle(
+                                            fontSize: 14,
+                                            color: Colors.white70,
+                                            height: 1.3,
+                                          ),
+                                          maxLines: _isAddressExpanded ? null : 1,
+                                          overflow: _isAddressExpanded ? null : TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Icon(
+                                        _isAddressExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                        color: Colors.white70,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                               if (widget.place.distanceKm > 0) ...[
                                 const SizedBox(height: 8),
                                 Row(
@@ -204,11 +248,9 @@ class _DestinationDetailsScreenState extends State<DestinationDetailsScreen> {
                       ),
                       const SizedBox(height: 12),
                       _isLoadingDesc
-                          ? Center(
-                              child: Padding(
-                                padding: const EdgeInsets.all(32.0),
-                                child: CircularProgressIndicator(color: colors.accentPrimary),
-                              ),
+                          ? const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8.0),
+                              child: SkeletonTextParagraph(lineCount: 5),
                             )
                           : Text(
                               _description,

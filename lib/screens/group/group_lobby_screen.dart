@@ -13,6 +13,7 @@ import '../../providers/group_provider.dart';
 import '../../providers/navigation_provider.dart';
 import '../../core/app_colors.dart';
 import '../../core/theme.dart';
+import '../../widgets/skeleton_loader.dart';
 import '../../utils/polyline_decoder.dart';
 
 class GroupLobbyScreen extends StatefulWidget {
@@ -146,7 +147,7 @@ class _GroupLobbyScreenState extends State<GroupLobbyScreen> {
           final group = groupProvider.currentGroup;
           
           if (group == null || group.id != widget.groupId) {
-            return Center(child: CircularProgressIndicator(color: colors.accentPrimary));
+            return const SkeletonLobby();
           }
 
           final isLeader = group.isLeader(authProvider.currentUser!.id);

@@ -73,6 +73,8 @@ class _LoginScreenState extends State<LoginScreen> {
             fit: BoxFit.cover,
             alignment: Alignment.topCenter,
           ),
+          // Dark Overlay for readability
+          Container(color: Colors.black.withValues(alpha: 0.5)),
           
           // Scrollable Form Content
           SafeArea(
@@ -168,26 +170,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                             ),
                             
-                            // Forgot Password
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: TextButton(
-                                onPressed: () {},
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 12),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: const Text(
-                                  'Forgot password?',
-                                  style: TextStyle(
-                                    color: primaryGreen,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                              ),
-                            ),
+
                             const SizedBox(height: 16),
                             
                             // Error message

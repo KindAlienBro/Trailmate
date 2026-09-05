@@ -542,6 +542,8 @@ class _LiveNavigationScreenState extends State<LiveNavigationScreen> with Ticker
                   mapController: _mapController,
                   initialCenter: center,
                   routePolyline: navProvider.routePolyline,
+                  traveledPolyline: navProvider.traveledPolyline,
+                  remainingPolyline: navProvider.remainingPolyline,
                   memberPositions: navProvider.memberPositions,
                   currentUserId: currentUserId,
                   leaderId: leaderId,

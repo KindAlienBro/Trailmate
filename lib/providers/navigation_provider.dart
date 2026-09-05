@@ -48,6 +48,9 @@ class NavigationProvider extends ChangeNotifier {
   bool _isNavigating = false;
   Map<String, MemberPosition> _memberPositions = {};
   List<LatLng> _routePolyline = [];
+  List<LatLng> _traveledPolyline = [];
+  List<LatLng> _remainingPolyline = [];
+  Position? _lastPolylineSplitPosition;
   List<RouteStep> _routeSteps = [];
   double _routeDistance = 0; // meters (initial total)
   double _routeDuration = 0; // seconds (initial total)
@@ -108,6 +111,8 @@ class NavigationProvider extends ChangeNotifier {
   bool get isNavigating => _isNavigating;
   Map<String, MemberPosition> get memberPositions => _memberPositions;
   List<LatLng> get routePolyline => _routePolyline;
+  List<LatLng> get traveledPolyline => _traveledPolyline;
+  List<LatLng> get remainingPolyline => _remainingPolyline;
   List<RouteStep> get routeSteps => _routeSteps;
   RouteStep? get currentStep => _routeSteps.isNotEmpty && _currentStepIndex < _routeSteps.length ? _routeSteps[_currentStepIndex] : null;
   RouteStep? get upcomingStep => _routeSteps.isNotEmpty && _currentStepIndex + 1 < _routeSteps.length ? _routeSteps[_currentStepIndex + 1] : null;
@@ -647,8 +652,28 @@ class NavigationProvider extends ChangeNotifier {
           // 4. Check deviation from route (Off-route auto-rerouting)
           if (_routePolyline.isNotEmpty && !_isRerouting) {
             // Calculate perpendicular distance to nearest polyline SEGMENT (not just vertices)
-            final minDistance = _distanceToPolyline(position.latitude, position.longitude);
-            final isWrongWay = _isWrongWay(position, minDistance);
+            final projection = _projectToRoute(position.latitude, position.longitude);
+            final minDistance = projection.distance;
+            final isWrongWay = _isWrongWay(position, projection.segmentIndex, minDistance);
+            
+            // --- SPLIT POLYLINE LOGIC ---
+            // Throttle splitting logic: only recalculate if moved > 3 meters since last split
+            final lastSplitPos = _lastPolylineSplitPosition;
+            if (lastSplitPos == null || LocationService.distanceBetween(position.latitude, position.longitude, lastSplitPos.latitude, lastSplitPos.longitude) > 3) {
+              _lastPolylineSplitPosition = position;
+              if (projection.segmentIndex < _routePolyline.length) {
+                // Slices the route: Traveled gets 0 to segmentIndex + the projection point
+                _traveledPolyline = [
+                  ..._routePolyline.sublist(0, projection.segmentIndex + 1),
+                  projection.point,
+                ];
+                // Remaining gets the projection point + the rest of the route
+                _remainingPolyline = [
+                  projection.point,
+                  ..._routePolyline.sublist(projection.segmentIndex + 1),
+                ];
+              }
+            }
             
             // If user is more than threshold off the nearest route segment, trigger reroute
             if (minDistance > _deviationThreshold) {
@@ -750,6 +775,9 @@ class NavigationProvider extends ChangeNotifier {
                       _queueSpeak('You have caught up to the trip leader.', priority: TtsPriority.normal);
                       // Clear the route so we re-fetch if/when the leader moves further away
                       _routePolyline = [];
+                      _traveledPolyline = [];
+                      _remainingPolyline = [];
+                      _lastPolylineSplitPosition = null;
                       _routeSteps = [];
                       _currentStepIndex = 0;
                       notifyListeners();
@@ -771,79 +799,72 @@ class NavigationProvider extends ChangeNotifier {
     );
   }
 
-  /// Calculate the shortest perpendicular distance from a point to the route polyline.
-  /// This checks every LINE SEGMENT (not just vertices), so it catches
-  /// when you're on a parallel road that runs between two polyline vertices.
-  double _distanceToPolyline(double lat, double lng) {
+  /// Projects a point onto the nearest polyline segment, returning the minimum distance,
+  /// the index of that segment, and the exact projected coordinate.
+  ({double distance, int segmentIndex, LatLng point}) _projectToRoute(double lat, double lng) {
     if (_routePolyline.length < 2) {
-      // Fallback: distance to single point
       if (_routePolyline.isNotEmpty) {
-        return LocationService.distanceBetween(lat, lng, _routePolyline[0].latitude, _routePolyline[0].longitude);
+        return (
+          distance: LocationService.distanceBetween(lat, lng, _routePolyline[0].latitude, _routePolyline[0].longitude),
+          segmentIndex: 0,
+          point: _routePolyline[0],
+        );
       }
-      return double.infinity;
+      return (distance: double.infinity, segmentIndex: 0, point: const LatLng(0, 0));
     }
 
     double minDist = double.infinity;
+    int minIndex = 0;
+    LatLng minPoint = _routePolyline[0];
+
     for (int i = 0; i < _routePolyline.length - 1; i++) {
       final a = _routePolyline[i];
       final b = _routePolyline[i + 1];
-      final dist = _pointToSegmentDistance(lat, lng, a.latitude, a.longitude, b.latitude, b.longitude);
-      if (dist < minDist) minDist = dist;
+      
+      final dx = b.longitude - a.longitude;
+      final dy = b.latitude - a.latitude;
+      final lenSq = dx * dx + dy * dy;
+
+      double projLat, projLng;
+
+      if (lenSq == 0) {
+        projLat = a.latitude;
+        projLng = a.longitude;
+      } else {
+        double t = ((lng - a.longitude) * dx + (lat - a.latitude) * dy) / lenSq;
+        if (t < 0) t = 0;
+        if (t > 1) t = 1;
+        projLat = a.latitude + t * dy;
+        projLng = a.longitude + t * dx;
+      }
+
+      final dist = LocationService.distanceBetween(lat, lng, projLat, projLng);
+      if (dist < minDist) {
+        minDist = dist;
+        minIndex = i;
+        minPoint = LatLng(projLat, projLng);
+      }
     }
-    return minDist;
-  }
 
-  /// Perpendicular distance from point P to line segment AB, in meters.
-  /// Projects P onto AB; if projection falls outside the segment, returns
-  /// distance to the nearest endpoint.
-  double _pointToSegmentDistance(
-    double pLat, double pLng,
-    double aLat, double aLng,
-    double bLat, double bLng,
-  ) {
-    final dx = bLng - aLng;
-    final dy = bLat - aLat;
-    final lenSq = dx * dx + dy * dy;
-
-    if (lenSq == 0) {
-      // A and B are the same point
-      return LocationService.distanceBetween(pLat, pLng, aLat, aLng);
-    }
-
-    // Project point P onto line AB, clamped to [0, 1]
-    double t = ((pLng - aLng) * dx + (pLat - aLat) * dy) / lenSq;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-
-    final projLat = aLat + t * dy;
-    final projLng = aLng + t * dx;
-
-    return LocationService.distanceBetween(pLat, pLng, projLat, projLng);
+    return (distance: minDist, segmentIndex: minIndex, point: minPoint);
   }
 
   /// Check if the user is driving the wrong way along the route
-  bool _isWrongWay(Position position, double minDistance) {
+  bool _isWrongWay(Position position, int segmentIndex, double minDistance) {
     if (_routePolyline.length < 2) return false;
     // Don't calculate wrong way if moving too slow or off route (1.5 m/s = 5.4 km/h)
     if (position.speed < 1.5 || minDistance > _deviationThreshold) return false;
 
-    double minDist = double.infinity;
-    double nearestSegmentBearing = 0.0;
-    
-    for (int i = 0; i < _routePolyline.length - 1; i++) {
-      final a = _routePolyline[i];
-      final b = _routePolyline[i + 1];
-      final dist = _pointToSegmentDistance(position.latitude, position.longitude, a.latitude, a.longitude, b.latitude, b.longitude);
-      if (dist < minDist) {
-        minDist = dist;
-        nearestSegmentBearing = LocationService.bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
-      }
-    }
+    if (segmentIndex >= _routePolyline.length - 1) return false;
+
+    final a = _routePolyline[segmentIndex];
+    final b = _routePolyline[segmentIndex + 1];
+    final nearestSegmentBearing = LocationService.bearingBetween(a.latitude, a.longitude, b.latitude, b.longitude);
     
     double diff = (position.heading - nearestSegmentBearing).abs();
     if (diff > 180) diff = 360 - diff;
     
-    // If heading differs by more than 120 degrees from the segment bearing, user is going the wrong way
+    // If bearing difference is > 120 degrees, they are driving the wrong way
     return diff > 120;
   }
 
@@ -902,6 +923,9 @@ class NavigationProvider extends ChangeNotifier {
     // Use the group's predefined route polyline initially
     if (group.route.polyline?.isNotEmpty == true) {
       _routePolyline = decodePolyline(group.route.polyline!);
+      _traveledPolyline = [];
+      _remainingPolyline = List.from(_routePolyline);
+      _lastPolylineSplitPosition = null;
       
       // Load steps from the group route so DirectionsBanner can display instructions
       if (group.route.steps.isNotEmpty) {
@@ -944,6 +968,9 @@ class NavigationProvider extends ChangeNotifier {
     _currentGroupId = null;
     _isNavigating = false;
     _routePolyline = [];
+    _traveledPolyline = [];
+    _remainingPolyline = [];
+    _lastPolylineSplitPosition = null;
     _routeSteps = [];
     _memberPositions.clear();
     _activeAlerts.clear();
@@ -977,6 +1004,9 @@ class NavigationProvider extends ChangeNotifier {
     // Clear route to prevent arrival from immediately triggering again 
     // on the next GPS update while staying in the active navigation session.
     _routePolyline.clear();
+    _traveledPolyline.clear();
+    _remainingPolyline.clear();
+    _lastPolylineSplitPosition = null;
     _routeSteps.clear();
     _currentStepIndex = 0;
     _remainingDistance = 0;
@@ -990,6 +1020,9 @@ class NavigationProvider extends ChangeNotifier {
   /// Set route polyline (decoded from directions API)
   void setRoutePolyline(List<LatLng> points) {
     _routePolyline = points;
+    _traveledPolyline = [];
+    _remainingPolyline = List.from(_routePolyline);
+    _lastPolylineSplitPosition = null;
     notifyListeners();
   }
 

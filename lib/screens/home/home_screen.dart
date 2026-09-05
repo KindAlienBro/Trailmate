@@ -6,6 +6,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
 import '../../providers/navigation_provider.dart';
 import '../../widgets/theme_switcher_sheet.dart';
+import '../../widgets/skeleton_loader.dart';
 import '../../core/app_colors.dart';
 import '../../services/explore_service.dart';
 import '../../services/place_image_service.dart';
@@ -882,14 +883,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Container(
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(24),
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: 0.1),
-                              Colors.black.withValues(alpha: 0.7),
-                            ],
-                          ),
+                          color: Colors.black.withValues(alpha: 0.4),
                         ),
                         padding: const EdgeInsets.all(20),
                         child: Column(
@@ -1006,7 +1000,16 @@ class _HomeScreenState extends State<HomeScreen> {
         SizedBox(
           height: 140,
           child: _isLoadingPlaces 
-              ? const Center(child: CircularProgressIndicator())
+              ? ListView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const NeverScrollableScrollPhysics(),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  children: const [
+                    SkeletonNearbyCard(),
+                    SkeletonNearbyCard(),
+                    SkeletonNearbyCard(),
+                  ],
+                )
               : _nearbyPlaces.isEmpty 
                   ? Center(child: Text('No places found nearby.', style: TextStyle(color: colors.textSecondary)))
                   : ListView.builder(
@@ -1117,9 +1120,15 @@ class _HomeScreenState extends State<HomeScreen> {
         Consumer<GroupProvider>(
           builder: (context, groupProvider, _) {
             if (groupProvider.isLoading) {
-              return const Padding(
-                padding: EdgeInsets.all(32),
-                child: Center(child: CircularProgressIndicator()),
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Column(
+                  children: const [
+                    SkeletonTripCard(),
+                    SkeletonTripCard(),
+                    SkeletonTripCard(),
+                  ],
+                ),
               );
             }
 
@@ -1250,7 +1259,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       Expanded(
                         child: Text(
-                          'Starts tomorrow, 6:00 AM',
+                          group.createdAt != null
+                              ? 'Created ${group.createdAt!.day}/${group.createdAt!.month}/${group.createdAt!.year}'
+                              : 'Starts soon',
                           style: TextStyle(color: colors.textSecondary, fontSize: 12),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1263,14 +1274,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Icon(Icons.directions_bike_rounded, color: colors.textTertiary, size: 14),
                       const SizedBox(width: 4),
-                      Text('260 km', style: TextStyle(color: colors.textTertiary, fontSize: 12)),
+                      Text(group.route.distanceText, style: TextStyle(color: colors.textTertiary, fontSize: 12)),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                         child: Text('•', style: TextStyle(color: colors.textTertiary)),
                       ),
                       Icon(Icons.schedule_rounded, color: colors.textTertiary, size: 14),
                       const SizedBox(width: 4),
-                      Text('5h 10m', style: TextStyle(color: colors.textTertiary, fontSize: 12)),
+                      Text(group.route.durationText, style: TextStyle(color: colors.textTertiary, fontSize: 12)),
                     ],
                   ),
                 ],
@@ -1298,18 +1309,12 @@ class _HomeScreenState extends State<HomeScreen> {
     double? height,
     bool isLoading = false,
   }) {
-    // Show placeholder spinner when explicitly loading
+    // Show skeleton shimmer when explicitly loading
     if (isLoading) {
-      return Container(
+      return SkeletonBox(
         width: width,
         height: height,
-        color: colors.borderColor.withValues(alpha: 0.3),
-        child: Center(
-          child: CircularProgressIndicator(
-            color: colors.accentSecondary,
-            strokeWidth: 2,
-          ),
-        ),
+        borderRadius: 12,
       );
     }
 
@@ -1336,20 +1341,10 @@ class _HomeScreenState extends State<HomeScreen> {
       fit: BoxFit.cover,
       loadingBuilder: (context, child, loadingProgress) {
         if (loadingProgress == null) return child;
-        return Container(
+        return SkeletonBox(
           width: width,
           height: height,
-          color: colors.borderColor.withValues(alpha: 0.3),
-          child: Center(
-            child: CircularProgressIndicator(
-              value: loadingProgress.expectedTotalBytes != null
-                  ? loadingProgress.cumulativeBytesLoaded /
-                      (loadingProgress.expectedTotalBytes ?? 1)
-                  : null,
-              color: colors.accentSecondary,
-              strokeWidth: 2,
-            ),
-          ),
+          borderRadius: 12,
         );
       },
       errorBuilder: (context, error, stackTrace) {

@@ -63,13 +63,20 @@ class DirectionsBanner extends StatelessWidget {
   });
 
   /// Resolve the maneuver direction from both the maneuverType string and
-  /// the instruction text. maneuverType is checked first; if it's empty or
-  /// 'straight', we attempt to infer direction from the instruction text.
+  /// the instruction text. Instruction is checked first; if it doesn't contain
+  /// directional keywords, we attempt to infer direction from the maneuverType text.
   ManeuverDirection _resolveDirection(String maneuverType, String instruction) {
     final m = maneuverType.toLowerCase().trim();
     final inst = instruction.toLowerCase();
 
-    // 1. Try resolving from the API maneuver type (most reliable when present)
+    // 1. Try resolving from the instruction text FIRST — it's the human-readable
+    // string and is what TTS speaks, so it's the source of truth when it
+    // disagrees with the API's maneuverType field.
+    final fromInstruction = _resolveFromInstruction(inst);
+    if (fromInstruction != null) return fromInstruction;
+
+    // 2. Fallback: API maneuver type (only reached if instruction had no
+    // directional keyword — e.g. bare "Continue")
     if (m.isNotEmpty) {
       // Arrival
       if (m.contains('arrive') || m.contains('destination')) {
@@ -79,25 +86,25 @@ class DirectionsBanner extends StatelessWidget {
       if (m.contains('depart')) return ManeuverDirection.depart;
       // U-turns
       if (m.contains('uturn') || m.contains('u-turn') || m.contains('u_turn')) {
-        return m.contains('right') || inst.contains('right')
+        return m.contains('right')
             ? ManeuverDirection.uTurnRight
             : ManeuverDirection.uTurnLeft;
       }
       // Roundabout
       if (m.contains('roundabout')) {
-        return m.contains('left') || inst.contains('left')
+        return m.contains('left')
             ? ManeuverDirection.roundaboutLeft
             : ManeuverDirection.roundaboutRight;
       }
       // Fork
       if (m.contains('fork')) {
-        return m.contains('left') || inst.contains('left')
+        return m.contains('left')
             ? ManeuverDirection.forkLeft
             : ManeuverDirection.forkRight;
       }
       // Ramp (highway on/off)
       if (m.contains('ramp') || m.contains('on-ramp') || m.contains('off-ramp')) {
-        return m.contains('left') || inst.contains('left')
+        return m.contains('left')
             ? ManeuverDirection.rampLeft
             : ManeuverDirection.rampRight;
       }
@@ -105,13 +112,13 @@ class DirectionsBanner extends StatelessWidget {
       if (m.contains('merge')) return ManeuverDirection.merge;
       // Sharp turns
       if (m.contains('sharp')) {
-        if (m.contains('left') || inst.contains('left')) return ManeuverDirection.sharpLeft;
-        if (m.contains('right') || inst.contains('right')) return ManeuverDirection.sharpRight;
+        if (m.contains('left')) return ManeuverDirection.sharpLeft;
+        if (m.contains('right')) return ManeuverDirection.sharpRight;
       }
       // Slight turns
       if (m.contains('slight')) {
-        if (m.contains('left') || inst.contains('left')) return ManeuverDirection.slightLeft;
-        if (m.contains('right') || inst.contains('right')) return ManeuverDirection.slightRight;
+        if (m.contains('left')) return ManeuverDirection.slightLeft;
+        if (m.contains('right')) return ManeuverDirection.slightRight;
       }
       // Normal turns
       if (m.contains('left')) return ManeuverDirection.turnLeft;
@@ -122,7 +129,10 @@ class DirectionsBanner extends StatelessWidget {
       }
     }
 
-    // 2. Fallback: parse the instruction text itself
+    return ManeuverDirection.straight;
+  }
+
+  ManeuverDirection? _resolveFromInstruction(String inst) {
     // U-turn detection (must come before left/right checks)
     if (inst.contains('u-turn') || inst.contains('uturn') || inst.contains('u turn')) {
       return inst.contains('right')
@@ -170,7 +180,7 @@ class DirectionsBanner extends StatelessWidget {
       return ManeuverDirection.turnRight;
     }
 
-    return ManeuverDirection.straight;
+    return null;
   }
 
   _ManeuverInfo _getManeuverInfo(ManeuverDirection direction) {

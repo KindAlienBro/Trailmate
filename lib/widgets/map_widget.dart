@@ -22,6 +22,8 @@ class TrailMapWidget extends StatefulWidget {
   final LatLng initialCenter;
   final double initialZoom;
   final List<LatLng> routePolyline;
+  final List<LatLng> traveledPolyline;
+  final List<LatLng> remainingPolyline;
   final Map<String, MemberPosition> memberPositions;
   final String? currentUserId;
   final String? leaderId;
@@ -44,6 +46,8 @@ class TrailMapWidget extends StatefulWidget {
     this.initialCenter = const LatLng(0, 0),
     this.initialZoom = 14.0,
     this.routePolyline = const [],
+    this.traveledPolyline = const [],
+    this.remainingPolyline = const [],
     this.memberPositions = const {},
     this.currentUserId,
     this.leaderId,
@@ -227,18 +231,39 @@ class _TrailMapWidgetState extends State<TrailMapWidget> with TickerProviderStat
         tileLayer,
 
         // Route Polyline
-            if (widget.routePolyline.isNotEmpty)
-              PolylineLayer(
-                polylines: <Polyline<Object>>[
-                  Polyline(
-                    points: widget.routePolyline,
-                    color: colors.accentPrimary.withValues(alpha: 0.8),
-                    strokeWidth: 6.0,
-                    borderStrokeWidth: 2.0,
-                    borderColor: colors.primaryBackground,
-                  ),
-                ],
+        if (widget.traveledPolyline.isNotEmpty || widget.remainingPolyline.isNotEmpty)
+          PolylineLayer(
+            polylines: <Polyline<Object>>[
+              if (widget.traveledPolyline.isNotEmpty)
+                Polyline(
+                  points: widget.traveledPolyline,
+                  color: colors.textTertiary.withValues(alpha: 0.6),
+                  strokeWidth: 6.0,
+                  borderStrokeWidth: 2.0,
+                  borderColor: colors.primaryBackground.withValues(alpha: 0.6),
+                ),
+              if (widget.remainingPolyline.isNotEmpty)
+                Polyline(
+                  points: widget.remainingPolyline,
+                  color: colors.accentPrimary.withValues(alpha: 0.8),
+                  strokeWidth: 6.0,
+                  borderStrokeWidth: 2.0,
+                  borderColor: colors.primaryBackground,
+                ),
+            ],
+          )
+        else if (widget.routePolyline.isNotEmpty)
+          PolylineLayer(
+            polylines: <Polyline<Object>>[
+              Polyline(
+                points: widget.routePolyline,
+                color: colors.accentPrimary.withValues(alpha: 0.8),
+                strokeWidth: 6.0,
+                borderStrokeWidth: 2.0,
+                borderColor: colors.primaryBackground,
               ),
+            ],
+          ),
 
             // Waypoint connector lines (drawn after route so they appear on top)
             if (waypointConnectors.isNotEmpty)

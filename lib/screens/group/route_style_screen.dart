@@ -9,6 +9,7 @@ import '../../providers/auth_provider.dart';
 import '../../providers/group_provider.dart';
 import '../../services/ola_maps_service.dart';
 import '../../utils/polyline_decoder.dart';
+import '../../widgets/skeleton_loader.dart';
 
 class RouteStyleScreen extends StatefulWidget {
   final String tripName;
@@ -140,10 +141,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
       if (polylineStr != null) {
         final points = decodePolyline(polylineStr);
         if (points.isNotEmpty) {
-          if (_styleWaypoints != null) {
-            // Keep POIs unselected by default
-            // _selectedPoiIndices = { for (int i = 0; i < _styleWaypoints!.length; i++) i };
-          }
+          // POIs will remain unticked by default, managed by _fetchStyleRoute state
           final bounds = LatLngBounds.fromPoints([
             ...points,
             LatLng(widget.origin.lat!, widget.origin.lng!),
@@ -177,6 +175,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
       _selectedRouteMode = mode;
       _selectedRouteIndex = 0;
       _isLoading = true;
+      _selectedPoiIndices = {}; // Clear POI selection when switching styles
     });
 
     try {
@@ -219,11 +218,42 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
     setState(() => _isCreating = true);
 
     try {
-      // In a real scenario, we might re-fetch the route if 'Adventure' or 'Full Adventure' is selected to get actual geometry.
-      // For this redesign, we'll use the base route geometry to proceed, as per the UI flow simplification.
-      final currentRoute = _styleRoutes != null && _styleRoutes!.isNotEmpty 
-          ? _styleRoutes![_selectedRouteIndex] 
-          : _baseRoutes![_selectedRouteIndex];
+      Map<String, dynamic> currentRoute;
+      
+      if (_selectedPoiIndices.isEmpty || _styleWaypoints == null) {
+        currentRoute = _baseRoutes![_selectedRouteIndex];
+      } else {
+        // Fetch a new route that passes exactly through the selected POIs
+        final selectedWps = _styleWaypoints!.asMap().entries
+            .where((e) => _selectedPoiIndices.contains(e.key))
+            .map((e) => e.value)
+            .toList();
+            
+        final waypointsList = selectedWps.map((wp) => {
+          'lat': (wp['lat'] as num).toDouble(),
+          'lng': (wp['lng'] as num).toDouble(),
+        }).toList();
+
+        try {
+          final res = await _mapsService.getDirections(
+            originLat: widget.origin.lat!,
+            originLng: widget.origin.lng!,
+            destLat: widget.destination.lat!,
+            destLng: widget.destination.lng!,
+            waypoints: waypointsList,
+            mode: widget.transportMode,
+          );
+          if (res['routes'] != null && res['routes'].isNotEmpty) {
+            currentRoute = res['routes'][0];
+          } else {
+            currentRoute = _baseRoutes![_selectedRouteIndex];
+          }
+        } catch (e) {
+          debugPrint('Error fetching waypoint route: $e');
+          currentRoute = _baseRoutes![_selectedRouteIndex];
+        }
+      }
+
       final polyline = currentRoute['overview_polyline'] ?? currentRoute['geometry'];
 
       List<dynamic> steps = [];
@@ -255,7 +285,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
 
       if (mounted) {
         if (group != null) {
-          Navigator.pushNamedAndRemoveUntil(context, '/group-lobby', (route) => route.isFirst, arguments: group.id);
+          Navigator.pushNamed(context, '/group-lobby', arguments: group.id);
         } else {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text(groupProvider.errorMessage ?? 'Failed to create trip')),
@@ -300,6 +330,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       body: Stack(
         children: [
           // 1. Map Layer
@@ -325,10 +356,7 @@ class _RouteStyleScreenState extends State<RouteStyleScreen> {
           ),
           
           if (_isLoading)
-            Container(
-              color: Colors.white.withValues(alpha: 0.5),
-              child: const Center(child: CircularProgressIndicator()),
-            ),
+            const SkeletonRouteOptions(),
         ],
       ),
     );

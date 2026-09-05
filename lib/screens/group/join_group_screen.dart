@@ -75,12 +75,12 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> with SingleTickerProv
   }
 
   Widget _buildSegment(String char, bool isActive, AppColorScheme colors) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 250),
-      curve: Curves.easeOutCubic,
-      width: 46,
-      height: 56,
-      margin: const EdgeInsets.symmetric(horizontal: 4),
+    return Expanded(
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 250),
+        curve: Curves.easeOutCubic,
+        height: 56,
+        margin: const EdgeInsets.symmetric(horizontal: 4),
       decoration: BoxDecoration(
         color: isActive ? colors.surfaceColor : colors.surfaceColor.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(14),
@@ -107,6 +107,7 @@ class _JoinGroupScreenState extends State<JoinGroupScreen> with SingleTickerProv
           color: isActive ? colors.accentPrimary : colors.textPrimary,
         ),
       ),
+    ),
     );
   }
 
